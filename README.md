@@ -80,6 +80,19 @@ shows the tags shared by all selected photos.
 
 Deleting the sidecar file resets the photo to its original state.
 
+## Running the tests
+
+```bash
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest tests/
+```
+
+- `tests/test_catalog.py`, `tests/test_render.py` — headless unit tests
+  (scanning, sidecar JSON, EXIF/rotation/crop pipeline, thumbnail cache).
+- `tests/test_gui.py` — drives the real tkinter UI (grid selection, filters,
+  tagging, viewer crop, keyboard guard). These need an X display and are
+  skipped automatically when none is available.
+
 ## Icon credits
 
 Toolbar icons in `photofx/icons/` come from IconArchive:

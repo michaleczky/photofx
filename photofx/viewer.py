@@ -60,7 +60,7 @@ class Viewer(tk.Toplevel):
         bar = ttk.Frame(self)
         bar.pack(side="bottom", fill="x")
         def btn(text, cmd, icon=None):
-            image = icons.load(icon) if icon else None
+            image = icons.load(icon, master=bar) if icon else None
             ttk.Button(bar, text=text, command=cmd, image=image,
                        compound="left" if image else None).pack(side="left", padx=2, pady=3)
         btn("◀ Prev", lambda: self.navigate(-1))

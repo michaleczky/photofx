@@ -40,7 +40,7 @@ class App(tk.Tk):
         bar.pack(side="top", fill="x", padx=6, pady=4)
 
         def btn(text, cmd, icon=None):
-            image = icons.load(icon) if icon else None
+            image = icons.load(icon, master=bar) if icon else None
             ttk.Button(bar, text=text, command=cmd, image=image,
                        compound="left" if image else None).pack(side="left", padx=2)
 

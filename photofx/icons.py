@@ -12,17 +12,28 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import tkinter as tk
+
 from PIL import Image, ImageTk
 
 ICON_DIR = Path(__file__).parent / "icons"
-_cache: dict[tuple[str, int], ImageTk.PhotoImage] = {}
+
+# PhotoImages are bound to one Tk interpreter, so the cache key includes it.
+_cache: dict[tuple, ImageTk.PhotoImage] = {}
 
 
-def load(name: str, size: int = 18) -> ImageTk.PhotoImage | None:
-    """Return a scaled PhotoImage for the named icon, or None if missing."""
-    key = (name, size)
-    if key in _cache:
-        return _cache[key]
+def load(name: str, size: int = 18, master: tk.Misc | None = None) -> ImageTk.PhotoImage | None:
+    """Return a scaled PhotoImage for the named icon, or None if missing.
+
+    ``master`` (any widget of the window the icon will be shown in) selects
+    the Tk interpreter the image is created for; defaults to the root window.
+    """
+    if master is None:
+        master = tk._get_default_root()  # same rule ImageTk applies anyway
+    key = (master.tk, name, size)
+    cached = _cache.get(key)
+    if cached is not None:
+        return cached
     path = ICON_DIR / f"{name}.png"
     if not path.exists():
         return None
