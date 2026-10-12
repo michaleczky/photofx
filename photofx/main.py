@@ -7,6 +7,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from .catalog import PICK, REJECT, Photo, move_to_trash, save_photo, scan_folder
+from . import icons
 from .grid import PhotoGrid
 from .viewer import Viewer
 
@@ -38,16 +39,18 @@ class App(tk.Tk):
         bar = ttk.Frame(self)
         bar.pack(side="top", fill="x", padx=6, pady=4)
 
-        def btn(text, cmd):
-            ttk.Button(bar, text=text, command=cmd).pack(side="left", padx=2)
+        def btn(text, cmd, icon=None):
+            image = icons.load(icon) if icon else None
+            ttk.Button(bar, text=text, command=cmd, image=image,
+                       compound="left" if image else None).pack(side="left", padx=2)
 
-        btn("Open folder…", self.open_folder)
-        btn("⟲ Rotate left", lambda: self.rotate_selection(-90))
-        btn("Rotate right ⟳", lambda: self.rotate_selection(90))
-        btn("★ Pick", lambda: self.flag_selection(PICK))
-        btn("✕ Reject", lambda: self.flag_selection(REJECT))
-        btn("Clear flag", lambda: self.flag_selection(None))
-        btn("Delete", self.delete_selection)
+        btn("Open folder…", self.open_folder, icon="folder")
+        btn("Rotate left", lambda: self.rotate_selection(-90), icon="arrow-left")
+        btn("Rotate right", lambda: self.rotate_selection(90), icon="arrow-right")
+        btn("Pick", lambda: self.flag_selection(PICK), icon="star")
+        btn("Reject", lambda: self.flag_selection(REJECT), icon="close")
+        btn("Clear flag", lambda: self.flag_selection(None), icon="star-off")
+        btn("Delete", self.delete_selection, icon="trash")
 
         ttk.Label(bar, text="Tag:").pack(side="left", padx=(12, 2))
         self.tag_entry = ttk.Entry(bar, width=16)

@@ -8,6 +8,7 @@ from tkinter import ttk
 from PIL import Image, ImageTk
 
 from .catalog import PICK, REJECT, Photo
+from . import icons
 from .render import open_rotated
 
 MARGIN = 30          # px around the image in the viewer
@@ -58,21 +59,23 @@ class Viewer(tk.Toplevel):
     def _build_toolbar(self):
         bar = ttk.Frame(self)
         bar.pack(side="bottom", fill="x")
-        def btn(text, cmd):
-            ttk.Button(bar, text=text, command=cmd).pack(side="left", padx=2, pady=3)
+        def btn(text, cmd, icon=None):
+            image = icons.load(icon) if icon else None
+            ttk.Button(bar, text=text, command=cmd, image=image,
+                       compound="left" if image else None).pack(side="left", padx=2, pady=3)
         btn("◀ Prev", lambda: self.navigate(-1))
         btn("Next ▶", lambda: self.navigate(1))
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=4)
-        btn("⟲ Rotate left", lambda: self.rotate(-90))
-        btn("Rotate right ⟳", lambda: self.rotate(90))
-        btn("Crop", self.toggle_crop)
+        btn("Rotate left", lambda: self.rotate(-90), icon="arrow-left")
+        btn("Rotate right", lambda: self.rotate(90), icon="arrow-right")
+        btn("Crop", self.toggle_crop, icon="pencil")
         btn("Apply crop", self.apply_crop)
         btn("Clear crop", self.clear_crop)
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=4)
-        btn("★ Pick", lambda: self.set_flag(PICK))
-        btn("✕ Reject", lambda: self.set_flag(REJECT))
-        btn("Clear flag", lambda: self.set_flag(None))
-        btn("Delete", self._delete_current)
+        btn("Pick", lambda: self.set_flag(PICK), icon="star")
+        btn("Reject", lambda: self.set_flag(REJECT), icon="close")
+        btn("Clear flag", lambda: self.set_flag(None), icon="star-off")
+        btn("Delete", self._delete_current, icon="trash")
         self.info = tk.Label(bar, fg="#aaa", bg=DARK, anchor="e")
         self.info.pack(side="right", padx=8)
 

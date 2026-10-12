@@ -79,3 +79,12 @@ shows the tags shared by all selected photos.
 - `crop`: `[x0, y0, x1, y1]` in fractions of the *rotated* image
 
 Deleting the sidecar file resets the photo to its original state.
+
+## Icon credits
+
+Toolbar icons in `photofx/icons/` come from IconArchive:
+
+- **wefunction woofunction** set (folder, arrows, star, star-off, close,
+  pencil) — GPL, https://www.iconarchive.com/show/woofunction-icons-by-wefunction.html
+- **Koloria** set by GraphicRating (trash) — free for commercial use,
+  https://www.iconarchive.com/show/koloria-icons-by-graphicrating.2.html
