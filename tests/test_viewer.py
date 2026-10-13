@@ -177,3 +177,28 @@ class TestStandaloneEntry:
             proc.terminate()
             out, err = proc.communicate(timeout=10)
         assert b"Traceback" not in err, err.decode()
+
+    def test_launch_with_folder_saves_it(self, photo_dir):
+        from photofx.lib import settings
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "photofx.viewer", str(photo_dir)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            time.sleep(3)
+        finally:
+            proc.terminate()
+            proc.communicate(timeout=10)
+        assert settings.saved_folder() == photo_dir
+
+    def test_launch_without_args_uses_saved_folder(self, photo_dir):
+        from photofx.lib import settings
+        settings.save_folder(photo_dir)
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "photofx.viewer"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            time.sleep(3)
+            assert proc.poll() is None, "viewer exited instead of showing the saved folder"
+        finally:
+            proc.terminate()
+            proc.communicate(timeout=10)

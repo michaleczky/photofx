@@ -30,7 +30,7 @@ class FakeEvent:
 @pytest.fixture
 def app(photo_dir):
     from photofx.app.main import App
-    application = App()
+    application = App(restore_folder=False)
     application.open_folder(str(photo_dir))
     application.update()
     yield application
@@ -48,6 +48,120 @@ def click(grid, index, state=0):
     x = 10 + col * grid.cell_w + 5     # PAD + col*cell + a bit inside
     y = 10 + row * grid.cell_h + 5
     grid._on_click(FakeEvent(x, y, state))
+
+
+@requires_display
+class TestFolderMemory:
+    """Startup restores the last folder; opening a folder saves it."""
+
+    def test_app_restores_saved_folder(self, photo_dir):
+        from photofx.app.main import App
+        from photofx.lib import settings
+        settings.save_folder(photo_dir)
+        app = App(restore_folder=True)
+        try:
+            assert app.root_folder == photo_dir
+        finally:
+            app.grid.pending.clear()
+            app.destroy()
+
+    def test_pictures_dir_is_the_untouched_default(self, photo_dir, monkeypatch):
+        from photofx.app.main import App
+        from photofx.lib import settings
+        monkeypatch.setattr(settings, "pictures_folder", lambda: photo_dir)
+        app = App(restore_folder=True)
+        try:
+            assert app.root_folder == photo_dir
+            assert settings.saved_folder() is None  # fallback is not pinned
+        finally:
+            app.grid.pending.clear()
+            app.destroy()
+
+    def test_opening_a_folder_saves_it(self, app, photo_dir, tmp_path):
+        from photofx.lib import settings
+        other = tmp_path / "elsewhere"
+        other.mkdir()
+        app.open_folder(str(other))
+        assert settings.saved_folder() == other
+
+    def test_folder_dialog_opens_at_current_folder(self, app, photo_dir, monkeypatch):
+        import tkinter.filedialog as fd
+        seen = {}
+        monkeypatch.setattr(fd, "askdirectory", lambda **kw: seen.update(kw) or "")
+        app.open_folder()
+        assert seen.get("initialdir") == str(photo_dir)
+
+    def test_exclude_patterns_hide_matching_photos(self, photo_dir):
+        from photofx.app.main import App
+        from photofx.lib import settings
+        import json
+
+        hidden = photo_dir / ".secret.jpg"
+        hidden.write_bytes((photo_dir / "IMG_0001.jpg").read_bytes())
+        cfg = settings.config_dir()
+        cfg.mkdir(parents=True)
+        (cfg / "settings.json").write_text(
+            json.dumps({"exclude": ["^IMG_0002", "webp$"]}), encoding="utf-8")
+
+        app = App(restore_folder=False)
+        try:
+            app.open_folder(str(photo_dir))
+            names = {p.name for p in app.all_photos}
+        finally:
+            app.grid.pending.clear()
+            app.destroy()
+        assert names == {"IMG_0001.jpg", "beach.png", "sunset.jpg", "portrait.tif"}
+        # ".secret.jpg" (dotfile) and "IMG_0002.jpg"/"DSC_0099.webp" (regexes) are gone
+
+
+@requires_display
+class TestGridCellRendering:
+    """Caption centering, thumbnail centering, badge stacking."""
+
+    def test_caption_is_centered(self, app):
+        from photofx.app.grid import PAD
+        grid = app.grid
+        photo = grid.filtered[0]
+        caption = next((i for i in grid.find_all()
+                        if grid.type(i) == "text"
+                        and grid.itemcget(i, "text").startswith(photo.name)), None)
+        assert caption is not None
+        assert grid.itemcget(caption, "anchor") == "n"
+        assert grid.coords(caption)[0] == PAD + grid.thumb_size / 2
+
+    def test_thumbnail_centered_in_cell(self, app):
+        from PIL import Image, ImageTk
+        grid = app.grid
+        photo = grid.filtered[0]     # 1600x1200 -> thumb 170x127
+        path = str(photo.path)
+        grid.update_thumbnail(path, ImageTk.PhotoImage(Image.new("RGB", (170, 127))))
+        x, y = grid.coords(grid.find_withtag("img:" + path)[0])[:2]
+        assert y == 10 + (170 - 127) // 2   # cell origin + vertical centering
+        assert x == 10                      # full-width thumb: no horizontal shift
+
+    def test_badge_stays_above_loaded_thumbnail(self, app, photo_dir):
+        from PIL import Image, ImageTk
+        import time
+
+        photo = app.grid.filtered[0]
+        path = str(photo.path)
+        app.grid.selection = {path}
+        app.flag_selection("pick")
+
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            app.update()
+            if app.grid.find_withtag("img:" + path):
+                break
+            time.sleep(0.02)
+        assert app.grid.find_withtag("img:" + path), "thumbnail never arrived"
+
+        order = app.grid.find_all()
+        img = app.grid.find_withtag("img:" + path)[0]
+        overlays = app.grid.find_withtag("ov:" + path)
+        assert overlays, "badge overlay items are missing"
+        assert all(order.index(i) > order.index(img) for i in overlays), \
+            "flag badge is drawn below the thumbnail"
 
 
 @requires_display

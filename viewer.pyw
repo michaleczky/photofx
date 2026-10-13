@@ -5,9 +5,10 @@ Usage: viewer.pyw [folder]
 
 A .pyw entry point: on Windows it runs under pythonw with no console
 window; on Linux it is a plain executable script. Without a folder
-argument a folder picker is shown. If the system Python lacks Pillow but
-the project venv exists, the script re-executes itself with the venv
-interpreter.
+argument the last used folder (or the user's Pictures directory) is
+opened; a folder picker only appears when no default can be found. If
+the system Python lacks Pillow but the project venv exists, the script
+re-executes itself with the venv interpreter.
 """
 
 import os

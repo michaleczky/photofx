@@ -48,6 +48,11 @@ class TestScan:
         (photo_dir / "video.mp4").write_bytes(b"x")
         assert len(scan_folder(photo_dir)) == 6
 
+    def test_skips_hidden_files(self, photo_dir):
+        make_image(photo_dir / ".secret.jpg", (100, 100), (10, 10, 10))
+        make_image(photo_dir / "._IMG_0001.jpg", (100, 100), (10, 10, 10))
+        assert len(scan_folder(photo_dir)) == 6
+
     def test_missing_folder_returns_empty(self, tmp_path):
         assert scan_folder(tmp_path / "nope") == []
 

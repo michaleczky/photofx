@@ -10,6 +10,7 @@ from photofx.lib.catalog import PICK, REJECT, Photo, save_photo, scan_folder
 from photofx.lib import icons
 from photofx.lib.ops import apply_rotation, delete_photo
 from photofx.lib.render import ThumbWorker
+from photofx.lib import settings
 from photofx.app.grid import PhotoGrid
 from photofx.viewer.viewer import Viewer
 
@@ -18,7 +19,7 @@ FLAG_BY_LABEL = {"Pick": PICK, "Reject": REJECT}
 
 
 class App(tk.Tk):
-    def __init__(self):
+    def __init__(self, restore_folder: bool = True):
         super().__init__()
         self.title("photofx")
         self.geometry("1280x820")
@@ -35,6 +36,8 @@ class App(tk.Tk):
         self._build_grid()
         self._build_statusbar()
         self._bind_keys()
+        if restore_folder:
+            self._restore_last_folder()
 
     # ---------------------------------------------------------------- layout
     def _build_toolbar(self):
@@ -115,21 +118,39 @@ class App(tk.Tk):
         key("<Up>", lambda: self.grid.move_selection(-self.grid.columns))
 
     # ------------------------------------------------------------- folder io
-    def open_folder(self, chosen: str | None = None):
+    def _restore_last_folder(self):
+        """Open the folder from the last session, or the Pictures directory."""
+        folder = settings.default_folder()
+        if folder is not None:
+            self.open_folder(str(folder), remember=False)
+
+    def open_folder(self, chosen: str | None = None, remember: bool = True):
         if chosen is None:
-            chosen = filedialog.askdirectory(title="Choose photo folder")
+            start = self.root_folder or settings.default_folder()
+            chosen = filedialog.askdirectory(
+                title="Choose photo folder", initialdir=str(start) if start else None)
         if not chosen:
             return
-        self._set_folder(Path(chosen))
+        self._set_folder(Path(chosen), remember=remember)
 
-    def _set_folder(self, folder: Path):
+    def _set_folder(self, folder: Path, remember: bool = True):
+        if remember:
+            settings.save_folder(folder)
         if self.grid.worker is not None:
             self.grid.worker.shutdown()
         self.root_folder = folder
         self.title(f"photofx — {folder.name}")
-        self.all_photos = scan_folder(folder)
+        self.all_photos = self._scan(folder)
         self.grid.set_worker(ThumbWorker(folder, self.grid.cache))
         self._apply_filter(keep_selection=False)
+
+    def _scan(self, folder: Path) -> list[Photo]:
+        """Scan, dropping photos whose name matches a user exclude pattern."""
+        excluded = settings.exclude_patterns()
+        if not excluded:
+            return scan_folder(folder)
+        return [p for p in scan_folder(folder)
+                if not any(rx.search(p.name) for rx in excluded)]
 
     def destroy(self):
         if self.grid.worker is not None:
@@ -138,7 +159,7 @@ class App(tk.Tk):
 
     def rescan(self):
         if self.root_folder:
-            self.all_photos = scan_folder(self.root_folder)
+            self.all_photos = self._scan(self.root_folder)
             self._apply_filter()
 
     # -------------------------------------------------------------- filtering

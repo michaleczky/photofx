@@ -69,6 +69,8 @@ def scan_folder(root: Path) -> list[Photo]:
     for path in sorted(root.rglob("*"), key=lambda p: str(p).lower()):
         if not path.is_file() or path.suffix.lower() not in IMAGE_EXTS:
             continue
+        if path.name.startswith("."):
+            continue  # hidden file (e.g. macOS ._ forks, editor backups)
         rel = path.relative_to(root)
         if any(part.startswith(".") for part in rel.parts[:-1]):
             continue  # hidden dir (e.g. .photofx_trash)

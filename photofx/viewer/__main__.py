@@ -1,8 +1,11 @@
 """Standalone viewer application: python -m photofx.viewer [folder]
 
-Opens the full-screen single-photo viewer over a folder. Crop, rotate,
-flag and delete work as in the grid app; every change is written to the
-photo's JSON sidecar, originals are never modified.
+Opens the full-screen single-photo viewer over a folder. Without an
+argument it opens the last used folder, or the user's Pictures directory
+on first launch; a folder picker only appears when neither exists. The
+folder shown is remembered for the next launch. Crop, rotate, flag and
+delete work as in the grid app; every change is written to the photo's
+JSON sidecar, originals are never modified.
 """
 
 from __future__ import annotations
@@ -17,23 +20,31 @@ def main(argv: list[str] | None = None) -> None:
 
     from photofx.lib.catalog import scan_folder, save_photo
     from photofx.lib.ops import delete_photo
+    from photofx.lib import settings
     from photofx.viewer.viewer import Viewer
 
     argv = sys.argv[1:] if argv is None else argv
-    folder = Path(argv[0]) if argv else None
 
     root = tk.Tk()
     root.withdraw()
+
+    remember = False
+    if argv:
+        folder, remember = Path(argv[0]), True
+    else:
+        folder = settings.default_folder()
     if folder is None:
         chosen = filedialog.askdirectory(title="Choose photo folder")
         if not chosen:
             root.destroy()
             return
-        folder = Path(chosen)
+        folder, remember = Path(chosen), True
     if not folder.is_dir():
         messagebox.showerror("photofx viewer", f"Not a folder: {folder}")
         root.destroy()
         return
+    if remember:
+        settings.save_folder(folder)
     photos = scan_folder(folder)
     if not photos:
         messagebox.showinfo("photofx viewer", "No photos found in that folder.")

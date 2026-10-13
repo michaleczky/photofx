@@ -33,6 +33,7 @@ class PhotoGrid(tk.Canvas):
         self.worker = None             # set to a ThumbWorker to render off-thread
         self._poll_job = None
         self._paths: dict[str, Photo] = {}
+        self._cell_origins: dict[str, tuple[int, int]] = {}
         self.on_select = on_select
         self.on_open = on_open
 
@@ -83,6 +84,7 @@ class PhotoGrid(tk.Canvas):
 
     def _redraw(self):
         self.delete("all")
+        self._cell_origins = {}
         rows = (len(self.filtered) + self.columns - 1) // self.columns if self.filtered else 1
         height = rows * self.cell_h + PAD
         self.configure(scrollregion=(0, 0, max(self.winfo_width(), self.columns * self.cell_w + PAD), height))
@@ -96,6 +98,7 @@ class PhotoGrid(tk.Canvas):
 
     def _draw_cell(self, photo: Photo, x: int, y: int, width: int):
         s = str(photo.path)
+        self._cell_origins[s] = (x, y)
         selected = s in self.selection
         cell = (x, y, x + self.cell_w - PAD, y + self.cell_h - PAD)
         if selected:
@@ -103,7 +106,9 @@ class PhotoGrid(tk.Canvas):
                                   outline="#4a9eff", width=3)
         img = self.tk_images.get(s)
         if img is not None:
-            self.create_image(cell[0], cell[1], image=img, anchor="nw", tags=("img:" + s,))
+            cx = x + (self.thumb_size - img.width()) // 2
+            cy = y + (self.thumb_size - img.height()) // 2
+            self.create_image(cx, cy, image=img, anchor="nw", tags=("img:" + s,))
         else:
             self.create_rectangle(cell[0], cell[1], cell[0] + self.thumb_size, cell[1] + self.thumb_size,
                                   fill="#2a2a2a", outline="", tags=("ph:" + s,))
@@ -114,25 +119,27 @@ class PhotoGrid(tk.Canvas):
             color = FLAG_COLORS[photo.flag]
             bx, by = cell[2] - BADGE, cell[1] + BADGE
             self.create_oval(bx - BADGE, by - BADGE, bx + BADGE, by + BADGE,
-                             fill=color, outline="#111")
+                             fill=color, outline="#111", tags=("ov:" + s,))
             if photo.flag == REJECT:
-                self.create_text(bx, by, text="✕", fill="white", font=("TkDefaultFont", 9, "bold"))
+                self.create_text(bx, by, text="✕", fill="white",
+                                 font=("TkDefaultFont", 9, "bold"), tags=("ov:" + s,))
         if photo.crop is not None:
             self.create_text(cell[0] + 8, cell[1] + 10, text="⌗", fill="#4a9eff",
-                              font=("TkDefaultFont", 12))
+                              font=("TkDefaultFont", 12), tags=("ov:" + s,))
         # caption
         caption = photo.name
         if photo.tags:
             caption = f"{photo.name}  #{len(photo.tags)}"
-        self.create_text(cell[0], cell[1] + self.thumb_size + 8, width=self.cell_w - 10,
-                         text=caption, anchor="nw", fill="#cccccc" if selected else "#999999",
+        self.create_text(cell[0] + self.thumb_size // 2, cell[1] + self.thumb_size + 8,
+                         width=self.thumb_size, text=caption, anchor="n",
+                         fill="#cccccc" if selected else "#999999",
                          font=("TkDefaultFont", 8))
         # selected order marker
         if selected and len(self.selection) > 1:
             self.create_rectangle(cell[0], cell[1], cell[0] + 18, cell[1] + 16,
-                                  fill="#4a9eff", outline="")
+                                  fill="#4a9eff", outline="", tags=("ov:" + s,))
             self.create_text(cell[0] + 9, cell[1] + 8, text=str(len(self.selection)),
-                             fill="white", font=("TkDefaultFont", 7))
+                             fill="white", font=("TkDefaultFont", 7), tags=("ov:" + s,))
 
     # ------------------------------------------------------------- thumbnails
     def set_worker(self, worker) -> None:
@@ -172,11 +179,17 @@ class PhotoGrid(tk.Canvas):
         """Show a rendered thumbnail in its cell without redrawing the grid."""
         self.tk_images[path] = tkimg
         tag = "img:" + path
-        items = self.find_withtag(tag) or self.find_withtag("ph:" + path)
-        if items:
-            x, y = self.coords(items[0])[:2]
-            self.delete(tag, "ph:" + path)
-            self.create_image(x, y, image=tkimg, anchor="nw", tags=(tag,))
+        origin = self._cell_origins.get(path)
+        if origin is None:
+            items = self.find_withtag(tag) or self.find_withtag("ph:" + path)
+            if not items:
+                return  # no cell for this path right now
+            origin = self.coords(items[0])[:2]
+        x = origin[0] + (self.thumb_size - tkimg.width()) // 2
+        y = origin[1] + (self.thumb_size - tkimg.height()) // 2
+        self.delete(tag, "ph:" + path)
+        self.create_image(x, y, image=tkimg, anchor="nw", tags=(tag,))
+        self.tag_raise("ov:" + path)  # badges must stay above the image
 
     def _pump_idle(self):
         """Fallback thumbnail generation without a worker (idle-time)."""

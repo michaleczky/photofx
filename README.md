@@ -37,6 +37,10 @@ photofx/
   inside the scanned folder. Nothing is destroyed; restore by moving files back.
 - **Non-destructive**: originals are *never* modified. Rotation, crop, flags and
   tags live in a JSON sidecar next to each image (`IMG_0001.jpg.json`).
+- **Hidden & excluded files**: files whose name starts with `.` are never
+  shown. Add your own exclusion regexes to the `exclude` list in the settings
+  file (`~/.config/photofx/settings.json`) and photos matching them are hidden
+  from the grid, e.g. `{"folder": "...", "exclude": ["^screenshot", "_thumb$"]}`.
 - **Fast thumbnails**: rendered in parallel on background threads and cached
   on disk in `.photofx_cache/thumbs` inside the photo folder. Folders you
   have opened once display their thumbnails almost instantly at startup;
@@ -67,7 +71,10 @@ without any shell setup.
 
 ## Usage
 
-1. **Open folder…** and pick your photo folder.
+1. The app opens your **Pictures** folder by default (the folder picker
+   only appears when it doesn't exist). The last folder you open is
+   remembered and restored on the next launch; **Open folder…** starts
+   the dialog at the current folder.
 2. Select photos (click / Ctrl / Shift / Ctrl+A).
 3. Use the toolbar, the right-click context menu, or keyboard shortcuts.
 
@@ -84,9 +91,11 @@ without any shell setup.
 
 ### Viewer
 
-Run it standalone with `python -m photofx.viewer [folder]` (a folder picker
-appears if you omit the argument), or open it from the grid app by
-double-clicking a photo.
+Run it standalone with `python -m photofx.viewer [folder]` — without an
+argument it opens the last used folder, or your Pictures directory on
+first launch (a folder picker only appears when neither exists). The
+folder shown is remembered for the next launch. Or open it from the grid
+app by double-clicking a photo.
 
 `←`/`→` navigate, `P`/`X`/`U` flag, `[`/`]` rotate, `Delete` delete.
 **Crop** toggles the crop overlay; drag to draw, then **Apply crop**

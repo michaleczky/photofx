@@ -72,3 +72,13 @@ def _display_available() -> bool:
 
 
 DISPLAY_OK = _display_available()
+
+
+@pytest.fixture(autouse=True)
+def isolated_settings(tmp_path, monkeypatch):
+    """Point every test's settings at a throwaway config directory.
+
+    The apps persist the last opened folder in the user's config dir;
+    tests must neither read nor clobber the developer's real settings.
+    """
+    monkeypatch.setenv("PHOTOFX_CONFIG_DIR", str(tmp_path / "photofx-config"))
