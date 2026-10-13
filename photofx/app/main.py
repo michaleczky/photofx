@@ -7,7 +7,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from photofx.lib.catalog import PICK, REJECT, Photo, save_photo, scan_folder
-from photofx.lib import icons
+from photofx.lib import ui
 from photofx.lib.ops import apply_rotation, delete_photo
 from photofx.lib.render import ThumbWorker
 from photofx.lib import settings
@@ -24,7 +24,7 @@ class App(tk.Tk):
         self.title("photofx")
         self.geometry("1280x820")
         self.configure(bg="#1e1e1e")
-        ttk.Style(self).theme_use("clam")
+        ui.dark_style(self)
 
         self.root_folder: Path | None = None
         self.all_photos: list[Photo] = []
@@ -44,23 +44,25 @@ class App(tk.Tk):
         bar = ttk.Frame(self)
         bar.pack(side="top", fill="x", padx=6, pady=4)
 
-        def btn(text, cmd, icon=None):
-            image = icons.load(icon, master=bar) if icon else None
-            ttk.Button(bar, text=text, command=cmd, image=image,
-                       compound="left" if image else None).pack(side="left", padx=2)
+        def btn(text, cmd, icon=None, hint=None):
+            return ui.tool_button(bar, text, cmd, icon=icon, hint=hint)
 
         btn("Open folder…", self.open_folder, icon="folder")
-        btn("Rotate left", lambda: self.rotate_selection(-90), icon="arrow-left")
-        btn("Rotate right", lambda: self.rotate_selection(90), icon="arrow-right")
-        btn("Pick", lambda: self.flag_selection(PICK), icon="star")
-        btn("Reject", lambda: self.flag_selection(REJECT), icon="close")
-        btn("Clear flag", lambda: self.flag_selection(None), icon="star-off")
-        btn("Delete", self.delete_selection, icon="trash")
+        btn("Rotate left", lambda: self.rotate_selection(-90), icon="arrow-left",
+            hint="Rotate left  [")
+        btn("Rotate right", lambda: self.rotate_selection(90), icon="arrow-right",
+            hint="Rotate right  ]")
+        btn("Pick", lambda: self.flag_selection(PICK), icon="star", hint="Pick  P")
+        btn("Reject", lambda: self.flag_selection(REJECT), icon="close", hint="Reject  X")
+        btn("Clear flag", lambda: self.flag_selection(None), icon="star-off",
+            hint="Clear flag  U")
+        btn("Delete", self.delete_selection, icon="trash", hint="Delete  Del")
 
         ttk.Label(bar, text="Tag:").pack(side="left", padx=(12, 2))
         self.tag_entry = ttk.Entry(bar, width=16)
         self.tag_entry.pack(side="left")
         self.tag_entry.insert(0, "add tag…")
+        self.tag_entry.configure(foreground=ui.FG_PLACEHOLDER)
         self.tag_entry.bind("<FocusIn>", self._tag_focus_in)
         self.tag_entry.bind("<Return>", self._tag_entered)
         btn("Add tag", self._add_tag_from_entry)
@@ -74,6 +76,7 @@ class App(tk.Tk):
 
         self.tag_filter_entry = ttk.Entry(bar, width=14)
         self.tag_filter_entry.insert(0, "filter by tag…")
+        self.tag_filter_entry.configure(foreground=ui.FG_PLACEHOLDER)
         self.tag_filter_entry.bind("<FocusIn>", lambda e: self._clear_placeholder(self.tag_filter_entry, "filter by tag…"))
         self.tag_filter_entry.bind("<Return>", self._tag_filter_entered)
         self.tag_filter_entry.bind("<FocusOut>", lambda e: self._restore_placeholder(self.tag_filter_entry, "filter by tag…"))
@@ -243,13 +246,13 @@ class App(tk.Tk):
     def _clear_placeholder(self, entry, placeholder):
         if entry.get() == placeholder:
             entry.delete(0, "end")
-            entry.configure(foreground="#111")
+            entry.configure(foreground=ui.FG_ENTRY)
 
     def _restore_placeholder(self, entry, placeholder):
         if not entry.get():
             entry.delete(0, "end")
             entry.insert(0, placeholder)
-            entry.configure(foreground="#888")
+            entry.configure(foreground=ui.FG_PLACEHOLDER)
 
     def _tag_entered(self, _event=None):
         text = self.tag_entry.get().strip()

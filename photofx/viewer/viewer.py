@@ -8,7 +8,7 @@ from tkinter import ttk
 from PIL import Image, ImageTk
 
 from photofx.lib.catalog import PICK, REJECT, Photo
-from photofx.lib import icons
+from photofx.lib import ui
 from photofx.lib.ops import apply_rotation
 from photofx.lib.render import open_rotated
 
@@ -37,6 +37,7 @@ class Viewer(tk.Toplevel):
         self.title("photofx viewer")
         self.geometry("1100x780")
         self.configure(bg=DARK)
+        ui.dark_style(self)
         self.canvas = tk.Canvas(self, bg=DARK, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         self._build_toolbar()
@@ -62,24 +63,22 @@ class Viewer(tk.Toplevel):
     def _build_toolbar(self):
         bar = ttk.Frame(self)
         bar.pack(side="bottom", fill="x")
-        def btn(text, cmd, icon=None):
-            image = icons.load(icon, master=bar) if icon else None
-            ttk.Button(bar, text=text, command=cmd, image=image,
-                       compound="left" if image else None).pack(side="left", padx=2, pady=3)
-        btn("◀ Prev", lambda: self.navigate(-1))
-        btn("Next ▶", lambda: self.navigate(1))
+        def btn(text, cmd, icon=None, hint=None):
+            return ui.tool_button(bar, text, cmd, icon=icon, hint=hint)
+        btn("◀ Prev", lambda: self.navigate(-1), hint="Previous  ←")
+        btn("Next ▶", lambda: self.navigate(1), hint="Next  →")
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=4)
-        btn("Rotate left", lambda: self.rotate(-90), icon="arrow-left")
-        btn("Rotate right", lambda: self.rotate(90), icon="arrow-right")
-        btn("Crop", self.toggle_crop, icon="pencil")
+        btn("Rotate left", lambda: self.rotate(-90), icon="arrow-left", hint="Rotate left  [")
+        btn("Rotate right", lambda: self.rotate(90), icon="arrow-right", hint="Rotate right  ]")
+        btn("Crop", self.toggle_crop, icon="pencil", hint="Crop overlay")
         btn("Apply crop", self.apply_crop)
         btn("Clear crop", self.clear_crop)
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=4)
-        btn("Pick", lambda: self.set_flag(PICK), icon="star")
-        btn("Reject", lambda: self.set_flag(REJECT), icon="close")
-        btn("Clear flag", lambda: self.set_flag(None), icon="star-off")
-        btn("Delete", self._delete_current, icon="trash")
-        self.info = tk.Label(bar, fg="#aaa", bg=DARK, anchor="e")
+        btn("Pick", lambda: self.set_flag(PICK), icon="star", hint="Pick  P")
+        btn("Reject", lambda: self.set_flag(REJECT), icon="close", hint="Reject  X")
+        btn("Clear flag", lambda: self.set_flag(None), icon="star-off", hint="Clear flag  U")
+        btn("Delete", self._delete_current, icon="trash", hint="Delete  Del")
+        self.info = tk.Label(bar, fg="#aaa", bg=ui.PANEL, anchor="e")
         self.info.pack(side="right", padx=8)
 
     # ------------------------------------------------------------ rendering
