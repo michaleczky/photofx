@@ -7,9 +7,10 @@ from tkinter import ttk
 
 from PIL import Image, ImageTk
 
-from .catalog import PICK, REJECT, Photo
-from . import icons
-from .render import open_rotated
+from photofx.lib.catalog import PICK, REJECT, Photo
+from photofx.lib import icons
+from photofx.lib.ops import apply_rotation
+from photofx.lib.render import open_rotated
 
 MARGIN = 30          # px around the image in the viewer
 HANDLE = 12           # px hit zone for crop borders/corners
@@ -274,20 +275,24 @@ class Viewer(tk.Toplevel):
         photo = self.photo
         if photo is None:
             return
-        photo.rotation = (photo.rotation + degrees) % 360
-        if photo.crop is not None:
-            # crop rect is in rotated space; re-map it to the new orientation
-            x0, y0, x1, y1 = photo.crop
-            if degrees % 360 == 90:
-                photo.crop = (1 - y1, x0, 1 - y0, x1)
-            elif degrees % 360 == 270:
-                photo.crop = (y0, 1 - x1, y1, 1 - x0)
-            elif degrees % 360 == 180:
-                photo.crop = (1 - x1, 1 - y1, 1 - x0, 1 - y0)
+        apply_rotation(photo, degrees)
         self.draft = None
         self._base_key = None
         self._changed()
         self._show(keep_crop=True)
+
+    def remove_current(self):
+        """Drop the current photo from the list and land on a valid index."""
+        photo = self.photo
+        if photo is None:
+            return
+        self.photos = [p for p in self.photos if p is not photo]
+        if self.index >= len(self.photos):
+            self.index = max(0, len(self.photos) - 1)
+        self.draft = None
+        self.crop_mode = False
+        self._base_key = None
+        self._show()
 
     def set_flag(self, flag: str | None):
         photo = self.photo

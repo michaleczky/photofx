@@ -7,8 +7,8 @@ from tkinter import ttk
 
 from PIL import ImageTk
 
-from .catalog import PICK, REJECT, Photo
-from .render import ThumbCache, load_thumb
+from photofx.lib.catalog import PICK, REJECT, Photo
+from photofx.lib.render import ThumbCache, load_thumb
 
 PAD = 10
 BADGE = 12

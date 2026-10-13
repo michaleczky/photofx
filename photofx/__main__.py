@@ -1,3 +1,5 @@
-from .main import main
+"""Entry point: python -m photofx"""
+
+from photofx.app.main import main
 
 main()

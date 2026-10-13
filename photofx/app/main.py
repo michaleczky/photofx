@@ -6,11 +6,12 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from .catalog import PICK, REJECT, Photo, move_to_trash, save_photo, scan_folder
-from . import icons
-from .grid import PhotoGrid
-from .render import ThumbWorker
-from .viewer import Viewer
+from photofx.lib.catalog import PICK, REJECT, Photo, save_photo, scan_folder
+from photofx.lib import icons
+from photofx.lib.ops import apply_rotation, delete_photo
+from photofx.lib.render import ThumbWorker
+from photofx.app.grid import PhotoGrid
+from photofx.viewer.viewer import Viewer
 
 FILTERS = ["All photos", "Picks", "Without rejects", "Rejected", "Unflagged", "Untagged"]
 FLAG_BY_LABEL = {"Pick": PICK, "Reject": REJECT}
@@ -94,7 +95,12 @@ class App(tk.Tk):
 
     def _bind_keys(self):
         def key(seq, fn):
-            self.bind(seq, lambda e: None if self._typing() else fn())
+            def guarded(_event=None):
+                if not self._typing():
+                    fn()
+            self.bind(seq, guarded)
+            self._key_actions[seq] = guarded
+        self._key_actions = {}
         key("p", lambda: self.flag_selection(PICK))
         key("x", lambda: self.flag_selection(REJECT))
         key("u", lambda: self.flag_selection(None))
@@ -181,17 +187,7 @@ class App(tk.Tk):
         return photos
 
     def rotate_selection(self, degrees: int):
-        def rotate(photo: Photo):
-            photo.rotation = (photo.rotation + degrees) % 360
-            if photo.crop is not None:
-                x0, y0, x1, y1 = photo.crop
-                if degrees % 360 == 90:
-                    photo.crop = (1 - y1, x0, 1 - y0, x1)
-                elif degrees % 360 == 270:
-                    photo.crop = (y0, 1 - x1, y1, 1 - x0)
-                elif degrees % 360 == 180:
-                    photo.crop = (1 - x1, 1 - y1, 1 - x0, 1 - y0)
-        self._each_selected(rotate)
+        self._each_selected(lambda p: apply_rotation(p, degrees))
 
     def flag_selection(self, flag: str | None):
         self._each_selected(lambda p: setattr(p, "flag", flag))
@@ -208,10 +204,7 @@ class App(tk.Tk):
                 "Originals are moved, not destroyed — you can restore them from the folder."):
             return
         for photo in photos:
-            if self.root_folder:
-                move_to_trash(self.root_folder, photo)
-            else:
-                move_to_trash(photo.path.parent, photo)
+            delete_photo(self.root_folder, photo)
             self._purge_thumb(photo)
         gone = [str(p.path) for p in photos]
         self.all_photos = [p for p in self.all_photos if str(p.path) not in set(gone)]
@@ -286,21 +279,16 @@ class App(tk.Tk):
     def _viewer_delete(self, photo: Photo):
         if not messagebox.askyesno("Delete", f"Move {photo.name} to .photofx_trash?"):
             return
-        root = self.root_folder or photo.path.parent
-        move_to_trash(root, photo)
+        delete_photo(self.root_folder, photo)
         self._purge_thumb(photo)
         gone = str(photo.path)
         self.all_photos = [p for p in self.all_photos if str(p.path) != gone]
         self.grid.remove_paths([gone])
-        if self.viewer is not None and self.viewer.winfo_exists():
-            self.viewer.photos = [p for p in self.viewer.photos if str(p.path) != gone]
-            if not self.viewer.photos:
-                self.viewer.destroy()
-            elif self.viewer.index >= len(self.viewer.photos):
-                self.viewer.index = len(self.viewer.photos) - 1
-            if self.viewer.winfo_exists():
-                self.viewer.draft = None
-                self.viewer._show()
+        viewer = self.viewer
+        if viewer is not None and viewer.winfo_exists():
+            viewer.remove_current()
+            if not viewer.photos:
+                viewer.destroy()
 
     def _purge_thumb(self, photo: Photo):
         if self.grid.worker is not None:

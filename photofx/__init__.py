@@ -1,7 +1,10 @@
-"""photofx — a lightweight photo catalog and non-destructive editor."""
+"""photofx — a lightweight photo catalog and non-destructive editor.
 
-__version__ = "0.1.0"
+Applications:
+  photofx.app     — thumbnail grid (python -m photofx)
+  photofx.viewer  — single-photo viewer (python -m photofx.viewer)
 
-from .main import main
+Shared code lives in photofx.lib.
+"""
 
-__all__ = ["main"]
+__version__ = "0.2.0"

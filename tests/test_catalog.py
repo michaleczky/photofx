@@ -7,7 +7,7 @@ import json
 import pytest
 from PIL import Image
 
-from photofx.catalog import (
+from photofx.lib.catalog import (
     PICK,
     REJECT,
     TRASH_DIRNAME,

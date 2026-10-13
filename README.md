@@ -1,8 +1,25 @@
 # photofx
 
-A lightweight photo catalog and editor built with Python, tkinter and 
-Pillow. Only the features you actually use for cataloging and culling 
-photos — nothing else.
+A lightweight photo catalog and editor built with Python, tkinter and
+Pillow. Only the features you actually use for cataloging and culling
+photos — nothing else. Two small applications share one non-destructive
+library:
+
+- **photofx** — the thumbnail grid app for browsing, culling and tagging
+  (`python -m photofx`)
+- **photofx.viewer** — the single-photo viewer with crop, rotate, flag and
+  delete, usable standalone (`python -m photofx.viewer [folder]`)
+
+```
+photofx/
+├── lib/        # shared code used by both applications
+│   ├── catalog.py   # sidecar JSON metadata, folder scan, trash
+│   ├── render.py    # EXIF/rotate/crop pipeline, thumbnail caches, worker
+│   ├── icons.py     # toolbar icons
+│   └── ops.py       # shared operations (rotation + crop remap, delete)
+├── app/        # the grid application
+└── viewer/     # the viewer application
+```
 
 ## Features
 
@@ -56,6 +73,10 @@ python3 -m venv .venv
 
 ### Viewer
 
+Run it standalone with `python -m photofx.viewer [folder]` (a folder picker
+appears if you omit the argument), or open it from the grid app by
+double-clicking a photo.
+
 `←`/`→` navigate, `P`/`X`/`U` flag, `[`/`]` rotate, `Delete` delete.
 **Crop** toggles the crop overlay; drag to draw, then **Apply crop**
 (or `Enter`). `Esc` leaves crop mode without applying.
@@ -91,11 +112,15 @@ Deleting the sidecar file resets the photo to its original state.
 .venv/bin/python -m pytest tests/
 ```
 
-- `tests/test_catalog.py`, `tests/test_render.py` — headless unit tests
-  (scanning, sidecar JSON, EXIF/rotation/crop pipeline, thumbnail cache).
-- `tests/test_gui.py` — drives the real tkinter UI (grid selection, filters,
-  tagging, viewer crop, keyboard guard). These need an X display and are
-  skipped automatically when none is available.
+- `tests/test_catalog.py`, `tests/test_render.py`, `tests/test_ops.py` —
+  headless unit tests for the shared library (scanning, sidecar JSON,
+  EXIF/rotation/crop pipeline, thumbnail caches, shared operations).
+- `tests/test_app.py` — drives the real grid app (selection, filters,
+  tagging, thumbnails, keyboard guard, embedded viewer).
+- `tests/test_viewer.py` — drives the viewer as its own application
+  (crop/rotate/flags, remove-current, standalone entry point).
+- GUI tests need an X display and are skipped automatically when none is
+  available.
 
 ## Icon credits
 

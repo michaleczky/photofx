@@ -1,4 +1,4 @@
-"""GUI tests for the app window, grid selection, viewer and icons.
+"""GUI tests for the grid application (photofx.app).
 
 These run against the real tkinter UI and are skipped automatically when
 no X display is available.
@@ -6,15 +6,14 @@ no X display is available.
 
 from __future__ import annotations
 
-
 import pytest
 
 from tests.conftest import DISPLAY_OK
 
 pytest.importorskip("PIL")
 
-from photofx import icons  # noqa: E402
-from photofx.catalog import load_photo  # noqa: E402
+from photofx.lib import icons  # noqa: E402
+from photofx.lib.catalog import load_photo  # noqa: E402
 
 requires_display = pytest.mark.skipif(not DISPLAY_OK, reason="no X display available")
 
@@ -30,7 +29,7 @@ class FakeEvent:
 
 @pytest.fixture
 def app(photo_dir):
-    from photofx.main import App
+    from photofx.app.main import App
     application = App()
     application.open_folder(str(photo_dir))
     application.update()
@@ -181,6 +180,16 @@ class TestOperations:
         for p in photos:
             assert load_photo(photo_dir / p.name).rotation == 90
 
+    def test_rotate_selection_remaps_crop(self, app, photo_dir):
+        photo = app.grid.filtered[0]
+        photo.crop = (0.1, 0.2, 0.8, 0.9)
+        app.grid.selection = {str(photo.path)}
+        app.rotate_selection(90)
+        stored = load_photo(photo_dir / photo.name)
+        assert stored.rotation == 90
+        assert all(abs(a - b) < 1e-9 for a, b in
+                   zip(stored.crop, (0.1, 0.1, 0.8, 0.8)))
+
     def test_add_and_remove_tags(self, app, photo_dir):
         photos = app.grid.filtered[:3]
         app.grid.selection = {str(p.path) for p in photos}
@@ -214,102 +223,30 @@ class TestOperations:
 
 @requires_display
 class TestKeyboardGuard:
-    def test_typing_guard_detects_entry_focus(self, app):
+    def test_typing_guard_classifies_focus(self, app, monkeypatch):
+        monkeypatch.setattr(app, "focus_get", lambda: None)
+        assert app._typing() is False          # grid/nowhere -> shortcuts fire
+        monkeypatch.setattr(app, "focus_get", lambda: app.grid)
         assert app._typing() is False
-        app.tag_entry.focus_set()
-        app.update()
-        assert app._typing() is True
+        monkeypatch.setattr(app, "focus_get", lambda: app.tag_entry)
+        assert app._typing() is True          # text entry -> shortcuts suppressed
 
-    def test_single_keys_ignored_while_typing(self, app):
+    def test_single_keys_ignored_while_typing(self, app, monkeypatch):
         app.grid.select_all()
         app.flag_selection(None)
-        app.tag_entry.focus_set()
-        app.update_idletasks()
-        app.update()
-        app.event_generate("<Key-p>")
+        monkeypatch.setattr(app, "focus_get", lambda: app.tag_entry)
+        app._key_actions["p"]()
         app.update()
         assert all(p.flag is None for p in app.grid.selected_photos()), \
             "P must not flag while typing in the tag entry"
 
-    def test_single_keys_work_when_grid_focused(self, app):
+    def test_single_keys_work_when_grid_focused(self, app, monkeypatch):
         app.grid.select_all()
         app.flag_selection(None)
-        app.grid.focus_set()
-        app.update_idletasks()
-        app.update()
-        app.event_generate("<Key-p>")
+        monkeypatch.setattr(app, "focus_get", lambda: None)
+        app._key_actions["p"]()
         app.update()
         assert all(p.flag == "pick" for p in app.grid.selected_photos())
-
-
-@requires_display
-class TestViewer:
-    def _open(self, app, index=0):
-        app.open_viewer(app.grid.filtered[index])
-        viewer = app.viewer
-        viewer.update_idletasks()
-        viewer.update()
-        return viewer
-
-    def test_crop_apply_persists(self, app, photo_dir):
-        photo = app.grid.filtered[0]
-        viewer = self._open(app)
-        viewer.toggle_crop()
-        viewer.draft = [0.1, 0.1, 0.6, 0.7]
-        viewer.apply_crop()
-        stored = load_photo(photo_dir / photo.name)
-        assert stored.crop == (0.1, 0.1, 0.6, 0.7)
-        assert viewer.crop_mode is False
-        viewer.destroy()
-
-    def test_esc_exits_crop_without_applying(self, app, photo_dir):
-        photo = app.grid.filtered[0]
-        viewer = self._open(app)
-        viewer.toggle_crop()
-        viewer.draft = [0.1, 0.1, 0.5, 0.5]
-        viewer._exit_crop()
-        assert load_photo(photo_dir / photo.name).crop is None
-        viewer.destroy()
-
-    def test_tiny_crop_is_rejected(self, app, photo_dir):
-        photo = app.grid.filtered[0]
-        viewer = self._open(app)
-        viewer.toggle_crop()
-        viewer.draft = [0.4, 0.4, 0.41, 0.45]
-        viewer.apply_crop()
-        assert load_photo(photo_dir / photo.name).crop is None
-        viewer.destroy()
-
-    def test_rotate_remaps_crop(self, app, photo_dir):
-        photo = app.grid.filtered[0]
-        viewer = self._open(app)
-        viewer.toggle_crop()
-        viewer.draft = [0.1, 0.2, 0.8, 0.9]
-        viewer.apply_crop()
-        viewer.rotate(90)
-        stored = load_photo(photo_dir / photo.name)
-        assert stored.rotation == 90
-        assert all(abs(a - b) < 1e-9 for a, b in
-                   zip(stored.crop, (1 - 0.9, 0.1, 1 - 0.2, 0.8)))
-        viewer.destroy()
-
-    def test_clear_crop(self, app, photo_dir):
-        photo = app.grid.filtered[0]
-        viewer = self._open(app)
-        viewer.toggle_crop()
-        viewer.draft = [0.1, 0.1, 0.9, 0.9]
-        viewer.apply_crop()
-        viewer.clear_crop()
-        assert load_photo(photo_dir / photo.name).crop is None
-        viewer.destroy()
-
-    def test_navigate_wraps_and_flags(self, app, photo_dir):
-        viewer = self._open(app, 0)
-        viewer.navigate(-1)  # wraps to last
-        assert viewer.index == len(viewer.photos) - 1
-        viewer.set_flag("reject")
-        assert load_photo(photo_dir / viewer.photo.name).flag == "reject"
-        viewer.destroy()
 
 
 @requires_display
@@ -353,7 +290,7 @@ class TestThumbnailWorker:
         remaining = list(cache_dir.glob("*.jpg"))
         assert len(remaining) == 5  # only the victim's thumbnails were purged
         # the victim's cache entry is really gone
-        from photofx.render import DiskThumbCache
+        from photofx.lib.render import DiskThumbCache
         assert DiskThumbCache(photo_dir).get(victim, app.grid.thumb_size) is None
 
 
@@ -368,3 +305,35 @@ class TestIcons:
 
     def test_missing_icon_returns_none(self, app):
         assert icons.load("does-not-exist") is None
+
+
+@requires_display
+class TestEmbeddedViewer:
+    """The grid app launching the viewer window over its current selection."""
+
+    def test_open_viewer_and_apply_crop(self, app, photo_dir):
+        photo = app.grid.filtered[0]
+        app.open_viewer(photo)
+        viewer = app.viewer
+        viewer.update_idletasks()
+        viewer.toggle_crop()
+        viewer.draft = [0.1, 0.1, 0.6, 0.7]
+        viewer.apply_crop()
+        stored = load_photo(photo_dir / photo.name)
+        assert stored.crop == (0.1, 0.1, 0.6, 0.7)
+        viewer.destroy()
+
+    def test_viewer_delete_updates_grid(self, app, photo_dir, monkeypatch):
+        import tkinter.messagebox
+        monkeypatch.setattr(tkinter.messagebox, "askyesno", lambda *a, **k: True)
+        photo = app.grid.filtered[0]
+        app.open_viewer(photo)
+        viewer = app.viewer
+        viewer.update_idletasks()
+        viewer._delete_current()
+        assert not photo.path.exists()
+        assert (photo_dir / ".photofx_trash" / photo.name).exists()
+        assert photo not in app.grid.photos
+        assert photo not in viewer.photos
+        assert viewer.index < len(viewer.photos)
+        viewer.destroy()

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from photofx.catalog import Photo, load_photo
-from photofx.render import ThumbCache, load_thumb, open_rotated, render
+from photofx.lib.catalog import Photo, load_photo
+from photofx.lib.render import ThumbCache, load_thumb, open_rotated, render
 
 
 class TestOpenRotated:
@@ -94,7 +94,7 @@ class TestRenderPipeline:
 class TestDiskThumbCache:
     def test_roundtrip(self, photo_dir):
         from PIL import Image
-        from photofx.render import DiskThumbCache
+        from photofx.lib.render import DiskThumbCache
         cache = DiskThumbCache(photo_dir)
         photo = load_photo(photo_dir / "beach.png")
         img = Image.new("RGB", (20, 15), (10, 20, 30))
@@ -106,7 +106,7 @@ class TestDiskThumbCache:
 
     def test_invalidated_by_rotation(self, photo_dir):
         from PIL import Image
-        from photofx.render import DiskThumbCache
+        from photofx.lib.render import DiskThumbCache
         cache = DiskThumbCache(photo_dir)
         photo = load_photo(photo_dir / "beach.png")
         cache.put(photo, 170, Image.new("RGB", (20, 15)))
@@ -115,7 +115,7 @@ class TestDiskThumbCache:
 
     def test_invalidated_by_crop(self, photo_dir):
         from PIL import Image
-        from photofx.render import DiskThumbCache
+        from photofx.lib.render import DiskThumbCache
         cache = DiskThumbCache(photo_dir)
         photo = load_photo(photo_dir / "beach.png")
         cache.put(photo, 170, Image.new("RGB", (20, 15)))
@@ -124,7 +124,7 @@ class TestDiskThumbCache:
 
     def test_invalidated_by_source_change(self, photo_dir):
         from PIL import Image
-        from photofx.render import DiskThumbCache
+        from photofx.lib.render import DiskThumbCache
         cache = DiskThumbCache(photo_dir)
         photo = load_photo(photo_dir / "beach.png")
         cache.put(photo, 170, Image.new("RGB", (20, 15)))
@@ -133,7 +133,7 @@ class TestDiskThumbCache:
 
     def test_purge_removes_all_variants(self, photo_dir):
         from PIL import Image
-        from photofx.render import DiskThumbCache
+        from photofx.lib.render import DiskThumbCache
         cache = DiskThumbCache(photo_dir)
         photo = load_photo(photo_dir / "beach.png")
         cache.put(photo, 170, Image.new("RGB", (20, 15)))
@@ -144,8 +144,8 @@ class TestDiskThumbCache:
 
     def test_cache_dir_is_hidden_from_scan(self, photo_dir):
         from PIL import Image
-        from photofx.render import DiskThumbCache
-        from photofx.catalog import scan_folder
+        from photofx.lib.render import DiskThumbCache
+        from photofx.lib.catalog import scan_folder
         cache = DiskThumbCache(photo_dir)
         cache.put(load_photo(photo_dir / "beach.png"), 170, Image.new("RGB", (20, 15)))
         assert len(scan_folder(photo_dir)) == 6  # .photofx_cache is skipped
@@ -154,7 +154,7 @@ class TestDiskThumbCache:
 class TestThumbWorker:
     def test_renders_and_caches_in_background(self, photo_dir):
         import time
-        from photofx.render import DiskThumbCache, ThumbCache, ThumbWorker
+        from photofx.lib.render import DiskThumbCache, ThumbCache, ThumbWorker
         memory = ThumbCache()
         worker = ThumbWorker(photo_dir, memory)
         try:
@@ -180,7 +180,7 @@ class TestThumbWorker:
 
     def test_second_pass_hits_cache(self, photo_dir):
         import time
-        from photofx.render import DiskThumbCache, ThumbCache, ThumbWorker
+        from photofx.lib.render import DiskThumbCache, ThumbCache, ThumbWorker
         memory = ThumbCache()
         worker = ThumbWorker(photo_dir, memory)
         try:
