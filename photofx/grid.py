@@ -28,8 +28,11 @@ class PhotoGrid(tk.Canvas):
         self.columns = 1
         self.cache = ThumbCache()
         self.tk_images: dict[str, ImageTk.PhotoImage] = {}
-        self.pending: list[str] = []  # paths awaiting thumbnail generation
+        self.pending: list[str] = []  # paths awaiting thumbnail generation (no worker)
         self._pumping = False
+        self.worker = None             # set to a ThumbWorker to render off-thread
+        self._poll_job = None
+        self._paths: dict[str, Photo] = {}
         self.on_select = on_select
         self.on_open = on_open
 
@@ -40,6 +43,7 @@ class PhotoGrid(tk.Canvas):
         self.bind("<Button-1>", self._on_click)
         self.bind("<Double-Button-1>", self._on_double)
         self.bind("<Button-3>", self._on_right_click)
+        self.bind("<Destroy>", lambda e: self._cancel_poll(), add="+")
         self.bind("<MouseWheel>", lambda e: self.yview_scroll(-1 if e.delta > 0 else 1, "units"))
         # drag-select and scroll while dragging near edges
         self.bind("<B1-Motion>", self._on_drag)
@@ -62,15 +66,20 @@ class PhotoGrid(tk.Canvas):
         else:
             self.selection = set()
         self.anchor = None
-        self.tk_images.clear()
+        for p in list(self.tk_images):   # drop images of photos no longer shown
+            if p not in paths:
+                del self.tk_images[p]
         self._apply_filter_and_redraw()
 
     def _apply_filter_and_redraw(self):
         self.filtered = list(self.photos)
-        self.pending = [str(p.path) for p in self.filtered]
-        self.tk_images.clear()
+        self._paths = {str(p.path): p for p in self.filtered}
+        for photo in self.filtered:      # enqueue only what is not displayed yet
+            if str(photo.path) not in self.tk_images:
+                self._enqueue(photo, self.thumb_size)
         self._redraw()
-        self._pump_idle()
+        if self.worker is None and self.pending:
+            self.after_idle(self._pump_idle)
 
     def _redraw(self):
         self.delete("all")
@@ -94,12 +103,12 @@ class PhotoGrid(tk.Canvas):
                                   outline="#4a9eff", width=3)
         img = self.tk_images.get(s)
         if img is not None:
-            self.create_image(cell[0], cell[1], image=img, anchor="nw")
+            self.create_image(cell[0], cell[1], image=img, anchor="nw", tags=("img:" + s,))
         else:
             self.create_rectangle(cell[0], cell[1], cell[0] + self.thumb_size, cell[1] + self.thumb_size,
-                                  fill="#2a2a2a", outline="")
+                                  fill="#2a2a2a", outline="", tags=("ph:" + s,))
             self.create_text(cell[0] + self.thumb_size // 2, cell[1] + self.thumb_size // 2,
-                              text="…", fill="#777")
+                              text="…", fill="#777", tags=("ph:" + s,))
         # flag badge
         if photo.flag:
             color = FLAG_COLORS[photo.flag]
@@ -126,17 +135,60 @@ class PhotoGrid(tk.Canvas):
                              fill="white", font=("TkDefaultFont", 7))
 
     # ------------------------------------------------------------- thumbnails
+    def set_worker(self, worker) -> None:
+        """Install a background ThumbWorker and start polling for results."""
+        self.worker = worker
+        if worker is not None:
+            self.pending.clear()
+            self._cancel_poll()
+            self._poll_job = self.after(50, self._poll)
+
+    def _cancel_poll(self) -> None:
+        if self._poll_job is not None:
+            try:
+                self.after_cancel(self._poll_job)
+            except tk.TclError:
+                pass
+            self._poll_job = None
+
+    def _enqueue(self, photo: Photo, size: int) -> None:
+        if self.worker is not None:
+            self.worker.submit(photo, size)
+        else:
+            s = str(photo.path)
+            if s not in self.pending:
+                self.pending.append(s)
+
+    def _poll(self):
+        """UI thread: drain finished worker thumbnails and patch cells."""
+        if self.worker is None or not self.winfo_exists():
+            return
+        for path, _size, img in self.worker.collect(24):
+            if path in self._paths and path not in self.tk_images:
+                self.update_thumbnail(path, ImageTk.PhotoImage(img))
+        self._poll_job = self.after(50, self._poll)
+
+    def update_thumbnail(self, path: str, tkimg: ImageTk.PhotoImage) -> None:
+        """Show a rendered thumbnail in its cell without redrawing the grid."""
+        self.tk_images[path] = tkimg
+        tag = "img:" + path
+        items = self.find_withtag(tag) or self.find_withtag("ph:" + path)
+        if items:
+            x, y = self.coords(items[0])[:2]
+            self.delete(tag, "ph:" + path)
+            self.create_image(x, y, image=tkimg, anchor="nw", tags=(tag,))
+
     def _pump_idle(self):
+        """Fallback thumbnail generation without a worker (idle-time)."""
         if self._pumping:
             return
         self._pumping = True
         try:
-            dirty = False
-            for _ in range(8):  # small batch per idle tick keeps the UI responsive
+            for _ in range(8):
                 if not self.pending:
                     break
                 path = self.pending.pop(0)
-                photo = next((p for p in self.filtered if str(p.path) == path), None)
+                photo = self._paths.get(path)
                 if photo is None:
                     continue
                 img = self.cache.get(photo, self.thumb_size)
@@ -145,22 +197,26 @@ class PhotoGrid(tk.Canvas):
                     if img is not None:
                         self.cache.put(photo, self.thumb_size, img)
                 if img is not None:
-                    self.tk_images[path] = ImageTk.PhotoImage(img)
-                    dirty = True
+                    self.update_thumbnail(path, ImageTk.PhotoImage(img))
             if self.pending:
                 self.after_idle(self._pump_idle)
-            if dirty:
-                self._redraw()
         finally:
             self._pumping = False
 
     def refresh_cell(self, photo: Photo):
-        self.cache.drop(photo.path)
-        if str(photo.path) in self.pending:
-            return
-        self.pending.insert(0, str(photo.path))
-        self.tk_images.pop(str(photo.path), None)
-        self.after_idle(self._pump_idle)
+        self.refresh_cells([photo])
+
+    def refresh_cells(self, photos: list[Photo]):
+        """Metadata changed: invalidate cached thumbs, re-render, redraw badges."""
+        for photo in photos:
+            self.cache.drop(photo.path)
+            self.tk_images.pop(str(photo.path), None)
+            if self.worker is not None:
+                self.worker.submit(photo, self.thumb_size)
+            elif str(photo.path) not in self.pending:
+                self.pending.append(str(photo.path))
+                self.after_idle(self._pump_idle)
+        self._redraw()
 
     # ------------------------------------------------------------ interaction
     def _photo_at_event(self, event) -> tuple[int, Photo] | None:
@@ -272,6 +328,9 @@ class PhotoGrid(tk.Canvas):
         return float(parts[3]) if len(parts) == 4 else 1.0
 
     def remove_paths(self, paths: list[str]):
-        self.selection -= set(paths)
-        self.photos = [p for p in self.photos if str(p.path) not in set(paths)]
+        gone = set(paths)
+        self.selection -= gone
+        self.photos = [p for p in self.photos if str(p.path) not in gone]
+        for p in paths:
+            self.tk_images.pop(p, None)
         self._apply_filter_and_redraw()

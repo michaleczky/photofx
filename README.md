@@ -20,6 +20,10 @@ photos — nothing else.
   inside the scanned folder. Nothing is destroyed; restore by moving files back.
 - **Non-destructive**: originals are *never* modified. Rotation, crop, flags and
   tags live in a JSON sidecar next to each image (`IMG_0001.jpg.json`).
+- **Fast thumbnails**: rendered in parallel on background threads and cached
+  on disk in `.photofx_cache/thumbs` inside the photo folder. Folders you
+  have opened once display their thumbnails almost instantly at startup;
+  cache entries are keyed by mtime/rotation/crop, so edits always re-render.
 
 ## Install / run
 

@@ -82,13 +82,129 @@ class TestRenderPipeline:
         photo = load_photo(photo_dir / "IMG_0001.jpg")
         thumb = load_thumb(photo, 170)
         assert thumb is not None
-        assert max(thumb.size) <= 2 * 170  # load_thumb renders at 2x for quality
+        assert max(thumb.size) <= 170
 
     def test_load_thumb_respects_rotation(self, photo_dir):
         photo = load_photo(photo_dir / "IMG_0002.jpg")   # 1200x1600 stored
         photo.rotation = 90
         thumb = load_thumb(photo, 170)
         assert thumb.size[0] > thumb.size[1]  # landscape after 90 CW
+
+
+class TestDiskThumbCache:
+    def test_roundtrip(self, photo_dir):
+        from PIL import Image
+        from photofx.render import DiskThumbCache
+        cache = DiskThumbCache(photo_dir)
+        photo = load_photo(photo_dir / "beach.png")
+        img = Image.new("RGB", (20, 15), (10, 20, 30))
+        assert cache.get(photo, 170) is None
+        cache.put(photo, 170, img)
+        got = cache.get(photo, 170)
+        assert got is not None
+        assert got.size == (20, 15)
+
+    def test_invalidated_by_rotation(self, photo_dir):
+        from PIL import Image
+        from photofx.render import DiskThumbCache
+        cache = DiskThumbCache(photo_dir)
+        photo = load_photo(photo_dir / "beach.png")
+        cache.put(photo, 170, Image.new("RGB", (20, 15)))
+        photo.rotation = 90
+        assert cache.get(photo, 170) is None  # stale variant must not be served
+
+    def test_invalidated_by_crop(self, photo_dir):
+        from PIL import Image
+        from photofx.render import DiskThumbCache
+        cache = DiskThumbCache(photo_dir)
+        photo = load_photo(photo_dir / "beach.png")
+        cache.put(photo, 170, Image.new("RGB", (20, 15)))
+        photo.crop = (0.1, 0.1, 0.9, 0.9)
+        assert cache.get(photo, 170) is None
+
+    def test_invalidated_by_source_change(self, photo_dir):
+        from PIL import Image
+        from photofx.render import DiskThumbCache
+        cache = DiskThumbCache(photo_dir)
+        photo = load_photo(photo_dir / "beach.png")
+        cache.put(photo, 170, Image.new("RGB", (20, 15)))
+        Image.new("RGB", (50, 50), (1, 2, 3)).save(photo.path)  # new mtime
+        assert cache.get(photo, 170) is None
+
+    def test_purge_removes_all_variants(self, photo_dir):
+        from PIL import Image
+        from photofx.render import DiskThumbCache
+        cache = DiskThumbCache(photo_dir)
+        photo = load_photo(photo_dir / "beach.png")
+        cache.put(photo, 170, Image.new("RGB", (20, 15)))
+        cache.put(photo, 96, Image.new("RGB", (20, 15)))
+        assert len(list(cache.dir.glob("*.jpg"))) == 2
+        cache.purge(photo.path)
+        assert list(cache.dir.glob("*.jpg")) == []
+
+    def test_cache_dir_is_hidden_from_scan(self, photo_dir):
+        from PIL import Image
+        from photofx.render import DiskThumbCache
+        from photofx.catalog import scan_folder
+        cache = DiskThumbCache(photo_dir)
+        cache.put(load_photo(photo_dir / "beach.png"), 170, Image.new("RGB", (20, 15)))
+        assert len(scan_folder(photo_dir)) == 6  # .photofx_cache is skipped
+
+
+class TestThumbWorker:
+    def test_renders_and_caches_in_background(self, photo_dir):
+        import time
+        from photofx.render import DiskThumbCache, ThumbCache, ThumbWorker
+        memory = ThumbCache()
+        worker = ThumbWorker(photo_dir, memory)
+        try:
+            photos = [load_photo(photo_dir / n) for n in
+                      ("IMG_0001.jpg", "IMG_0002.jpg", "beach.png")]
+            for p in photos:
+                worker.submit(p, 170)
+
+            results = []
+            deadline = time.monotonic() + 15
+            while len(results) < 3 and time.monotonic() < deadline:
+                results.extend(worker.collect())
+                time.sleep(0.01)
+            assert len(results) == 3
+
+            paths = {path for path, _size, _img in results}
+            assert paths == {str(p.path) for p in photos}
+            for p in photos:
+                assert memory.get(p, 170) is not None
+            assert len(list(DiskThumbCache(photo_dir).dir.glob("*.jpg"))) >= 3
+        finally:
+            worker.shutdown()
+
+    def test_second_pass_hits_cache(self, photo_dir):
+        import time
+        from photofx.render import DiskThumbCache, ThumbCache, ThumbWorker
+        memory = ThumbCache()
+        worker = ThumbWorker(photo_dir, memory)
+        try:
+            photo = load_photo(photo_dir / "sunset.jpg")
+            worker.submit(photo, 170)
+            deadline = time.monotonic() + 15
+            while not worker.collect() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert DiskThumbCache(photo_dir).get(photo, 170) is not None
+
+            # a fresh worker with an empty memory cache serves from disk only
+            worker2 = ThumbWorker(photo_dir, ThumbCache())
+            try:
+                worker2.submit(photo, 170)
+                deadline = time.monotonic() + 15
+                got = []
+                while not got and time.monotonic() < deadline:
+                    got = worker2.collect()
+                    time.sleep(0.01)
+                assert got and got[0][0] == str(photo.path)
+            finally:
+                worker2.shutdown()
+        finally:
+            worker.shutdown()
 
 
 class TestThumbCache:

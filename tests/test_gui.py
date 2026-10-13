@@ -6,7 +6,6 @@ no X display is available.
 
 from __future__ import annotations
 
-import json
 
 import pytest
 
@@ -15,7 +14,7 @@ from tests.conftest import DISPLAY_OK
 pytest.importorskip("PIL")
 
 from photofx import icons  # noqa: E402
-from photofx.catalog import load_photo, scan_folder  # noqa: E402
+from photofx.catalog import load_photo  # noqa: E402
 
 requires_display = pytest.mark.skipif(not DISPLAY_OK, reason="no X display available")
 
@@ -33,9 +32,7 @@ class FakeEvent:
 def app(photo_dir):
     from photofx.main import App
     application = App()
-    application.root_folder = photo_dir
-    application.all_photos = scan_folder(photo_dir)
-    application._apply_filter(keep_selection=False)
+    application.open_folder(str(photo_dir))
     application.update()
     yield application
     application.grid.pending.clear()  # no thumbnail pump after destroy
@@ -313,6 +310,51 @@ class TestViewer:
         viewer.set_flag("reject")
         assert load_photo(photo_dir / viewer.photo.name).flag == "reject"
         viewer.destroy()
+
+
+@requires_display
+class TestThumbnailWorker:
+    def _wait_for(self, app, cond, timeout=20.0):
+        import time
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            app.update()
+            if cond():
+                return True
+            time.sleep(0.02)
+        return False
+
+    def test_worker_populates_disk_cache_and_grid(self, app, photo_dir):
+        cache_dir = photo_dir / ".photofx_cache" / "thumbs"
+        assert self._wait_for(app, lambda: len(list(cache_dir.glob("*.jpg"))) >= 6)
+        assert self._wait_for(app, lambda: len(app.grid.tk_images) >= 6)
+        # every visible cell now shows a real image item
+        for photo in app.grid.filtered:
+            assert app.grid.find_withtag("img:" + str(photo.path))
+
+    def test_worker_uses_cache_on_refilter(self, app, photo_dir):
+        self._wait_for(app, lambda: len(app.grid.tk_images) >= 6)
+        before = len(app.grid.tk_images)
+        app.grid.select_all()
+        app.flag_selection("pick")          # forces badge redraw + refresh_cells
+        app.filter_box.set("Picks")
+        app._filter_changed()
+        assert self._wait_for(app, lambda: len(app.grid.tk_images) == 6)
+        assert before == 6  # nothing was lost by the filter round-trip
+
+    def test_purge_on_delete(self, app, photo_dir, monkeypatch):
+        import tkinter.messagebox
+        monkeypatch.setattr(tkinter.messagebox, "askyesno", lambda *a, **k: True)
+        cache_dir = photo_dir / ".photofx_cache" / "thumbs"
+        assert self._wait_for(app, lambda: len(list(cache_dir.glob("*.jpg"))) >= 6)
+        victim = app.grid.filtered[0]
+        app.grid.selection = {str(victim.path)}
+        app.delete_selection()
+        remaining = list(cache_dir.glob("*.jpg"))
+        assert len(remaining) == 5  # only the victim's thumbnails were purged
+        # the victim's cache entry is really gone
+        from photofx.render import DiskThumbCache
+        assert DiskThumbCache(photo_dir).get(victim, app.grid.thumb_size) is None
 
 
 @requires_display

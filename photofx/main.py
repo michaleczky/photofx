@@ -9,6 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 from .catalog import PICK, REJECT, Photo, move_to_trash, save_photo, scan_folder
 from . import icons
 from .grid import PhotoGrid
+from .render import ThumbWorker
 from .viewer import Viewer
 
 FILTERS = ["All photos", "Picks", "Without rejects", "Rejected", "Unflagged", "Untagged"]
@@ -108,14 +109,26 @@ class App(tk.Tk):
         key("<Up>", lambda: self.grid.move_selection(-self.grid.columns))
 
     # ------------------------------------------------------------- folder io
-    def open_folder(self):
-        chosen = filedialog.askdirectory(title="Choose photo folder")
+    def open_folder(self, chosen: str | None = None):
+        if chosen is None:
+            chosen = filedialog.askdirectory(title="Choose photo folder")
         if not chosen:
             return
-        self.root_folder = Path(chosen)
-        self.title(f"photofx — {self.root_folder.name}")
-        self.all_photos = scan_folder(self.root_folder)
+        self._set_folder(Path(chosen))
+
+    def _set_folder(self, folder: Path):
+        if self.grid.worker is not None:
+            self.grid.worker.shutdown()
+        self.root_folder = folder
+        self.title(f"photofx — {folder.name}")
+        self.all_photos = scan_folder(folder)
+        self.grid.set_worker(ThumbWorker(folder, self.grid.cache))
         self._apply_filter(keep_selection=False)
+
+    def destroy(self):
+        if self.grid.worker is not None:
+            self.grid.worker.shutdown()
+        super().destroy()
 
     def rescan(self):
         if self.root_folder:
@@ -163,9 +176,7 @@ class App(tk.Tk):
         for photo in photos:
             fn(photo)
             save_photo(photo)
-            self.grid.cache.drop(photo.path)
-        for photo in photos:
-            self.grid.refresh_cell(photo)
+        self.grid.refresh_cells(photos)
         self._update_status()
         return photos
 
@@ -201,6 +212,7 @@ class App(tk.Tk):
                 move_to_trash(self.root_folder, photo)
             else:
                 move_to_trash(photo.path.parent, photo)
+            self._purge_thumb(photo)
         gone = [str(p.path) for p in photos]
         self.all_photos = [p for p in self.all_photos if str(p.path) not in set(gone)]
         self.grid.remove_paths(gone)
@@ -276,6 +288,7 @@ class App(tk.Tk):
             return
         root = self.root_folder or photo.path.parent
         move_to_trash(root, photo)
+        self._purge_thumb(photo)
         gone = str(photo.path)
         self.all_photos = [p for p in self.all_photos if str(p.path) != gone]
         self.grid.remove_paths([gone])
@@ -288,6 +301,10 @@ class App(tk.Tk):
             if self.viewer.winfo_exists():
                 self.viewer.draft = None
                 self.viewer._show()
+
+    def _purge_thumb(self, photo: Photo):
+        if self.grid.worker is not None:
+            self.grid.worker.disk.purge(photo.path)
 
     # -------------------------------------------------------- context menu
     def _context_menu(self, event):
