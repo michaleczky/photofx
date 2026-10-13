@@ -165,6 +165,39 @@ class TestGridCellRendering:
 
 
 @requires_display
+class TestFlagToggleButtons:
+    def test_toggle_pick_sets_then_clears(self, app, photo_dir):
+        photos = app.grid.filtered[:3]
+        app.grid.selection = {str(p.path) for p in photos}
+        app.toggle_pick()
+        assert all(load_photo(photo_dir / p.name).flag == "pick" for p in photos)
+        assert app.pick_btn.cget("style") == "Accent.TButton"
+        app.toggle_pick()                      # toggling again clears
+        assert all(p.flag is None for p in photos)
+        assert app.pick_btn.cget("style") == "TButton"
+
+    def test_pick_removes_reject(self, app):
+        photos = app.grid.filtered[:2]
+        app.grid.selection = {str(p.path) for p in photos}
+        app.toggle_reject()
+        assert all(p.flag == "reject" for p in photos)
+        app.toggle_pick()
+        assert all(p.flag == "pick" for p in photos)
+        assert app.reject_btn.cget("style") == "TButton"
+
+    def test_mixed_selection_keeps_button_untoggled(self, app):
+        photos = app.grid.filtered[:2]
+        app.grid.selection = {str(photos[0].path)}
+        app.flag_selection("pick")                    # only photos[0] is picked
+        app.grid.selection = {str(photos[1].path)}    # now only the unpicked one
+        app._update_status()
+        assert app.pick_btn.cget("style") == "TButton"
+        app.grid.selection = {str(photos[0].path)}    # the picked one: pressed
+        app._update_status()
+        assert app.pick_btn.cget("style") == "Accent.TButton"
+
+
+@requires_display
 class TestGridSelection:
     def test_single_click_selects_one(self, app):
         app.grid.columns = 3
@@ -248,27 +281,6 @@ class TestFilters:
             app._filter_changed()
             assert {p.name for p in app.grid.filtered} == expected, name
 
-    def test_untagged_filter(self, app):
-        photos = app.grid.filtered
-        app.grid.selection = {str(photos[0].path)}
-        app._add_tag("alps")
-        app.filter_box.set("Untagged")
-        app._filter_changed()
-        assert {p.name for p in app.grid.filtered} == \
-            {p.name for p in photos} - {photos[0].name}
-
-    def test_tag_text_filter(self, app):
-        photos = app.grid.filtered
-        app.grid.selection = {str(photos[0].path), str(photos[1].path)}
-        app._add_tag("alps")
-        app.grid.selection = {str(photos[2].path)}
-        app._add_tag("beach")
-
-        app.tag_filter_entry.delete(0, "end")
-        app.tag_filter_entry.insert(0, "alps")
-        app._tag_filter_entered()
-        assert {p.name for p in app.grid.filtered} == {photos[0].name, photos[1].name}
-
     def test_all_photos_shows_everything(self, app):
         app.filter_box.set("Rejected")
         app._filter_changed()
@@ -304,17 +316,6 @@ class TestOperations:
         assert all(abs(a - b) < 1e-9 for a, b in
                    zip(stored.crop, (0.1, 0.1, 0.8, 0.8)))
 
-    def test_add_and_remove_tags(self, app, photo_dir):
-        photos = app.grid.filtered[:3]
-        app.grid.selection = {str(p.path) for p in photos}
-        app._add_tag("alps, trip")
-        for p in photos:
-            assert load_photo(photo_dir / p.name).tags == {"alps", "trip"}
-
-        app._remove_tag("alps")
-        for p in photos:
-            assert load_photo(photo_dir / p.name).tags == {"trip"}
-
     def test_delete_selection_moves_to_trash(self, app, photo_dir, monkeypatch):
         import tkinter.messagebox
         monkeypatch.setattr(tkinter.messagebox, "askyesno", lambda *a, **k: True)
@@ -328,12 +329,6 @@ class TestOperations:
             assert not p.path.exists()
         assert len(app.grid.filtered) == len(app.all_photos) == 4
 
-    def test_selection_status_shows_common_tags(self, app):
-        photos = app.grid.filtered[:2]
-        app.grid.selection = {str(p.path) for p in photos}
-        app._add_tag("shared")
-        assert "#shared" in app.status.cget("text")
-
 
 @requires_display
 class TestKeyboardGuard:
@@ -342,17 +337,17 @@ class TestKeyboardGuard:
         assert app._typing() is False          # grid/nowhere -> shortcuts fire
         monkeypatch.setattr(app, "focus_get", lambda: app.grid)
         assert app._typing() is False
-        monkeypatch.setattr(app, "focus_get", lambda: app.tag_entry)
-        assert app._typing() is True          # text entry -> shortcuts suppressed
+        monkeypatch.setattr(app, "focus_get", lambda: app.filter_box)
+        assert app._typing() is True           # combobox -> shortcuts suppressed
 
-    def test_single_keys_ignored_while_typing(self, app, monkeypatch):
+    def test_single_keys_ignored_in_combobox(self, app, monkeypatch):
         app.grid.select_all()
         app.flag_selection(None)
-        monkeypatch.setattr(app, "focus_get", lambda: app.tag_entry)
+        monkeypatch.setattr(app, "focus_get", lambda: app.filter_box)
         app._key_actions["p"]()
         app.update()
         assert all(p.flag is None for p in app.grid.selected_photos()), \
-            "P must not flag while typing in the tag entry"
+            "P must not flag while the filter box has focus"
 
     def test_single_keys_work_when_grid_focused(self, app, monkeypatch):
         app.grid.select_all()
@@ -411,8 +406,8 @@ class TestThumbnailWorker:
 @requires_display
 class TestIcons:
     def test_all_toolbar_icons_load(self, app):
-        for name in ("folder", "arrow-left", "arrow-right", "star",
-                     "star-off", "close", "pencil", "trash"):
+        for name in ("folder", "rotate", "prev", "next", "zoom-in", "zoom-out",
+                     "crop", "star", "close", "trash"):
             photo_img = icons.load(name)
             assert photo_img is not None, f"missing icon: {name}"
             assert photo_img.width() <= 32

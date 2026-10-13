@@ -68,35 +68,31 @@ class TestSidecar:
         assert photo.flag is None
         assert photo.rotation == 0
         assert photo.crop is None
-        assert photo.tags == set()
 
     def test_roundtrip(self, photo_dir):
         path = photo_dir / "IMG_0001.jpg"
         photo = load_photo(path)
         photo.flag = PICK
         photo.rotation = 270
-        photo.tags = {"alps", "trip 2026"}
         photo.crop = (0.1, 0.2, 0.8, 0.9)
         save_photo(photo)
 
         data = json.loads((photo_dir / "IMG_0001.jpg.json").read_text())
         assert data["flag"] == "pick"
         assert data["rotation"] == 270
-        assert data["tags"] == ["alps", "trip 2026"]
         assert data["crop"] == [0.1, 0.2, 0.8, 0.9]
 
         reloaded = load_photo(path)
         assert reloaded.flag == PICK
         assert reloaded.rotation == 270
         assert reloaded.crop == (0.1, 0.2, 0.8, 0.9)
-        assert reloaded.tags == {"alps", "trip 2026"}
 
     def test_empty_metadata_writes_minimal_sidecar(self, photo_dir):
         path = photo_dir / "beach.png"
         photo = load_photo(path)
         save_photo(photo)
         data = json.loads((photo_dir / "beach.png.json").read_text())
-        assert data == {"flag": None, "rotation": 0, "tags": []}
+        assert data == {"flag": None, "rotation": 0}
 
     def test_tolerates_invalid_json(self, photo_dir):
         path = photo_dir / "beach.png"
@@ -110,13 +106,11 @@ class TestSidecar:
             "flag": "weird",
             "rotation": 45,          # not a multiple of 90 -> ignored
             "crop": [0.1, 0.2],      # wrong length -> ignored
-            "tags": "not-a-list",    # wrong type -> ignored
         }))
         photo = load_photo(path)
         assert photo.flag is None
         assert photo.rotation == 0
         assert photo.crop is None
-        assert photo.tags == set()
 
     def test_reject_flag_roundtrip(self, photo_dir):
         path = photo_dir / "IMG_0002.jpg"
@@ -128,7 +122,7 @@ class TestSidecar:
     def test_crop_is_normalized_on_load(self, photo_dir):
         path = photo_dir / "beach.png"
         (photo_dir / "beach.png.json").write_text(json.dumps({
-            "flag": None, "rotation": 0, "tags": [], "crop": [0.8, 0.9, 0.1, 0.2],
+            "flag": None, "rotation": 0, "crop": [0.8, 0.9, 0.1, 0.2],
         }))
         photo = load_photo(path)
         assert photo.crop == (0.1, 0.2, 0.8, 0.9)
@@ -145,7 +139,6 @@ class TestSidecar:
 class TestTrash:
     def test_moves_photo_and_sidecar(self, photo_dir):
         photo = load_photo(photo_dir / "IMG_0001.jpg")
-        photo.tags = {"x"}
         save_photo(photo)
         move_to_trash(photo_dir, photo)
 

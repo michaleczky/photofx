@@ -14,7 +14,7 @@ from photofx.lib import settings
 from photofx.app.grid import PhotoGrid
 from photofx.viewer.viewer import Viewer
 
-FILTERS = ["All photos", "Picks", "Without rejects", "Rejected", "Unflagged", "Untagged"]
+FILTERS = ["All photos", "Picks", "Without rejects", "Rejected", "Unflagged"]
 FLAG_BY_LABEL = {"Pick": PICK, "Reject": REJECT}
 
 
@@ -29,7 +29,6 @@ class App(tk.Tk):
         self.root_folder: Path | None = None
         self.all_photos: list[Photo] = []
         self.filter_name = FILTERS[0]
-        self.tag_query = ""
         self.viewer: Viewer | None = None
 
         self._build_toolbar()
@@ -47,40 +46,18 @@ class App(tk.Tk):
         def btn(text, cmd, icon=None, hint=None):
             return ui.tool_button(bar, text, cmd, icon=icon, hint=hint)
 
-        btn("Open folder…", self.open_folder, icon="folder")
-        btn("Rotate left", lambda: self.rotate_selection(-90), icon="arrow-left",
-            hint="Rotate left  [")
-        btn("Rotate right", lambda: self.rotate_selection(90), icon="arrow-right",
-            hint="Rotate right  ]")
-        btn("Pick", lambda: self.flag_selection(PICK), icon="star", hint="Pick  P")
-        btn("Reject", lambda: self.flag_selection(REJECT), icon="close", hint="Reject  X")
-        btn("Clear flag", lambda: self.flag_selection(None), icon="star-off",
-            hint="Clear flag  U")
+        btn("Open folder...", self.open_folder, icon="folder")
+        btn("Rotate", lambda: self.rotate_selection(90), icon="rotate",
+            hint="Rotate 90 right  ]")
+        self.pick_btn = btn("Pick", self.toggle_pick, icon="star", hint="Pick  P")
+        self.reject_btn = btn("Reject", self.toggle_reject, icon="close", hint="Reject  X")
         btn("Delete", self.delete_selection, icon="trash", hint="Delete  Del")
-
-        ttk.Label(bar, text="Tag:").pack(side="left", padx=(12, 2))
-        self.tag_entry = ttk.Entry(bar, width=16)
-        self.tag_entry.pack(side="left")
-        self.tag_entry.insert(0, "add tag…")
-        self.tag_entry.configure(foreground=ui.FG_PLACEHOLDER)
-        self.tag_entry.bind("<FocusIn>", self._tag_focus_in)
-        self.tag_entry.bind("<Return>", self._tag_entered)
-        btn("Add tag", self._add_tag_from_entry)
-        btn("Remove tag", self._remove_tag_from_entry)
 
         ttk.Label(bar, text="Filter:").pack(side="left", padx=(12, 2))
         self.filter_box = ttk.Combobox(bar, state="readonly", values=FILTERS, width=16)
         self.filter_box.current(0)
         self.filter_box.pack(side="left")
         self.filter_box.bind("<<ComboboxSelected>>", self._filter_changed)
-
-        self.tag_filter_entry = ttk.Entry(bar, width=14)
-        self.tag_filter_entry.insert(0, "filter by tag…")
-        self.tag_filter_entry.configure(foreground=ui.FG_PLACEHOLDER)
-        self.tag_filter_entry.bind("<FocusIn>", lambda e: self._clear_placeholder(self.tag_filter_entry, "filter by tag…"))
-        self.tag_filter_entry.bind("<Return>", self._tag_filter_entered)
-        self.tag_filter_entry.bind("<FocusOut>", lambda e: self._restore_placeholder(self.tag_filter_entry, "filter by tag…"))
-        self.tag_filter_entry.pack(side="left", padx=4)
 
     def _build_grid(self):
         frame = ttk.Frame(self)
@@ -170,13 +147,6 @@ class App(tk.Tk):
         self.filter_name = self.filter_box.get()
         self._apply_filter()
 
-    def _tag_filter_entered(self, _event=None):
-        text = self.tag_filter_entry.get().strip()
-        if text == "filter by tag…":
-            text = ""
-        self.tag_query = text.lower()
-        self._apply_filter()
-
     def _photo_matches(self, photo: Photo) -> bool:
         f = self.filter_name
         if f == "Picks" and photo.flag != PICK:
@@ -187,12 +157,6 @@ class App(tk.Tk):
             return False
         if f == "Unflagged" and photo.flag is not None:
             return False
-        if f == "Untagged" and photo.tags:
-            return False
-        if self.tag_query:
-            wanted = [w.strip().lstrip("#") for w in self.tag_query.split(",") if w.strip()]
-            if wanted and not any(w in photo.tags for w in wanted):
-                return False
         return True
 
     def _apply_filter(self, keep_selection=True):
@@ -216,12 +180,33 @@ class App(tk.Tk):
     def flag_selection(self, flag: str | None):
         self._each_selected(lambda p: setattr(p, "flag", flag))
 
+    def toggle_pick(self):
+        self._toggle_flag(PICK)
+
+    def toggle_reject(self):
+        self._toggle_flag(REJECT)
+
+    def _toggle_flag(self, flag: str):
+        """Clicking Pick/Reject: set on the whole selection, or clear when already set."""
+        photos = self.grid.selected_photos()
+        if not photos:
+            return
+        if all(p.flag == flag for p in photos):
+            self._each_selected(lambda p: setattr(p, "flag", None))
+        else:
+            self._each_selected(lambda p: setattr(p, "flag", flag))
+
+    def _sync_flag_buttons(self):
+        photos = self.grid.selected_photos()
+        ui.set_toggled(self.pick_btn, bool(photos) and all(p.flag == PICK for p in photos))
+        ui.set_toggled(self.reject_btn, bool(photos) and all(p.flag == REJECT for p in photos))
+
     def delete_selection(self):
         photos = self.grid.selected_photos()
         if not photos:
             return
         names = ", ".join(p.name for p in photos[:5])
-        more = f" … and {len(photos) - 5} more" if len(photos) > 5 else ""
+        more = f" ... and {len(photos) - 5} more" if len(photos) > 5 else ""
         if not messagebox.askyesno(
                 "Delete",
                 f"Move {len(photos)} photo(s) to the .photofx_trash folder?\n\n{names}{more}\n\n"
@@ -238,51 +223,6 @@ class App(tk.Tk):
             if self.viewer.photo is None:
                 self.viewer.navigate(0)
         self._update_status()
-
-    # ------------------------------------------------------------- tagging
-    def _tag_focus_in(self, _event=None):
-        self._clear_placeholder(self.tag_entry, "add tag…")
-
-    def _clear_placeholder(self, entry, placeholder):
-        if entry.get() == placeholder:
-            entry.delete(0, "end")
-            entry.configure(foreground=ui.FG_ENTRY)
-
-    def _restore_placeholder(self, entry, placeholder):
-        if not entry.get():
-            entry.delete(0, "end")
-            entry.insert(0, placeholder)
-            entry.configure(foreground=ui.FG_PLACEHOLDER)
-
-    def _tag_entered(self, _event=None):
-        text = self.tag_entry.get().strip()
-        if text.startswith("-"):
-            self._remove_tag(text.lstrip("-"))
-        elif text:
-            self._add_tag(text)
-        self.tag_entry.delete(0, "end")
-
-    def _add_tag_from_entry(self):
-        self._add_tag(self.tag_entry.get().strip().lstrip("#"))
-
-    def _remove_tag_from_entry(self):
-        self._remove_tag(self.tag_entry.get().strip().lstrip("-#"))
-
-    def _clean_tag(self, raw: str) -> list[str]:
-        tags = {t.strip().lstrip("#") for t in raw.split(",")}
-        return [t for t in tags if t]
-
-    def _add_tag(self, raw: str):
-        tags = self._clean_tag(raw)
-        if not tags:
-            return
-        self._each_selected(lambda p: p.tags.update(tags))
-
-    def _remove_tag(self, raw: str):
-        tags = set(self._clean_tag(raw))
-        if not tags:
-            return
-        self._each_selected(lambda p: p.tags.difference_update(tags))
 
     # -------------------------------------------------------------- viewer
     def open_viewer(self, photo: Photo):
@@ -335,16 +275,9 @@ class App(tk.Tk):
         menu.add_command(label="Reject", command=lambda: self.flag_selection(REJECT))
         menu.add_command(label="Clear flag", command=lambda: self.flag_selection(None))
         menu.add_separator()
-        menu.add_command(label="Rotate left", command=lambda: self.rotate_selection(-90))
-        menu.add_command(label="Rotate right", command=lambda: self.rotate_selection(90))
+        menu.add_command(label="Rotate", command=lambda: self.rotate_selection(90))
         menu.add_separator()
-        if photo.tags:
-            sub = tk.Menu(menu, tearoff=0)
-            for tag in sorted(photo.tags):
-                sub.add_command(label=f"Remove “{tag}”",
-                                command=lambda t=tag: self._remove_tag(t))
-            menu.add_cascade(label="Remove tags", menu=sub)
-        menu.add_command(label="Delete…", command=self.delete_selection)
+        menu.add_command(label="Delete...", command=self.delete_selection)
         menu.tk_popup(event.x_root, event.y_root)
 
     # --------------------------------------------------------------- status
@@ -366,16 +299,13 @@ class App(tk.Tk):
                 info += f"  ↻{p.rotation}°"
             if p.crop:
                 info += "  [cropped]"
-            if p.tags:
-                info += "  " + " ".join("#" + t for t in sorted(p.tags))
         elif sel:
-            common = set.intersection(*(p.tags for p in sel)) if sel else set()
-            info = f"{len(sel)} selected · tags on all: " + (
-                " ".join("#" + t for t in sorted(common)) if common else "(none)")
+            info = f"{len(sel)} selected"
         else:
             info = "Click to select · Ctrl-click to add · Shift-click for ranges · double-click to view"
         self.status.configure(
             text=f"{visible} / {total} photos · {len(sel)} selected   |   {info}")
+        self._sync_flag_buttons()
 
 
 def main():

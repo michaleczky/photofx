@@ -66,6 +66,18 @@ class TestToolButton:
 
 
 @requires_display
+class TestSetToggled:
+    def test_swaps_style(self, root):
+        bar = ttk.Frame(root)
+        button = ui.tool_button(bar, "Pick", lambda: None, icon="star")
+        assert button.cget("style") in ("", "TButton")
+        ui.set_toggled(button, True)
+        assert button.cget("style") == "Accent.TButton"
+        ui.set_toggled(button, False)
+        assert button.cget("style") == "TButton"
+
+
+@requires_display
 class TestTooltip:
     def test_show_and_cancel(self, root):
         bar = ttk.Frame(root)

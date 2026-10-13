@@ -5,7 +5,7 @@ Pillow. Only the features you actually use for cataloging and culling
 photos — nothing else. Two small applications share one non-destructive
 library:
 
-- **photofx** — the thumbnail grid app for browsing, culling and tagging
+- **photofx** — the thumbnail grid app for browsing and culling
   (`python -m photofx`)
 - **photofx.viewer** — the single-photo viewer with crop, rotate, flag and
   delete, usable standalone (`python -m photofx.viewer [folder]`)
@@ -26,17 +26,15 @@ photofx/
 - **Browse**: scrollable thumbnail grid for a folder (scanned recursively).
 - **Multi-select**: click, Ctrl-click to add/remove, Shift-click for ranges,
   Ctrl+A for all. Every operation applies to the whole selection.
-- **Rotate**: 90° left/right, stored as metadata, never touching the file.
+- **Rotate**: 90° right per click, stored as metadata, never touching the file.
 - **Crop**: interactive crop in the viewer — drag to draw a rect, drag inside
   to move it, drag edges/corners to resize. Rule-of-thirds guides included.
 - **Flag**: pick (★) / reject (✕) / clear.
-- **Tags**: free-text tags, comma-separated; add to or remove from the selection.
-- **Filter**: picks / rejected / without rejects / unflagged / untagged, plus a
-  tag text filter.
+- **Filter**: picks / rejected / without rejects / unflagged.
 - **Delete**: moves photos (and their sidecars) into a `.photofx_trash` folder
   inside the scanned folder. Nothing is destroyed; restore by moving files back.
-- **Non-destructive**: originals are *never* modified. Rotation, crop, flags and
-  tags live in a JSON sidecar next to each image (`IMG_0001.jpg.json`).
+- **Non-destructive**: originals are *never* modified. Rotation, crop and
+  flags live in a JSON sidecar next to each image (`IMG_0001.jpg.json`).
 - **Hidden & excluded files**: files whose name starts with `.` are never
   shown. Add your own exclusion regexes to the `exclude` list in the settings
   file (`~/.config/photofx/settings.json`) and photos matching them are hidden
@@ -73,7 +71,7 @@ without any shell setup.
 
 1. The app opens your **Pictures** folder by default (the folder picker
    only appears when it doesn't exist). The last folder you open is
-   remembered and restored on the next launch; **Open folder…** starts
+   remembered and restored on the next launch; **Open folder...** starts
    the dialog at the current folder.
 2. Select photos (click / Ctrl / Shift / Ctrl+A).
 3. Use the toolbar, the right-click context menu, or keyboard shortcuts.
@@ -98,14 +96,12 @@ folder shown is remembered for the next launch. Or open it from the grid
 app by double-clicking a photo.
 
 `←`/`→` navigate, `P`/`X`/`U` flag, `[`/`]` rotate, `Delete` delete.
+`+`/`-` zoom in/out (also the mouse wheel), `0` fit to window; drag the
+image to pan while zoomed in. The **Pick**/**Reject** buttons are
+toggles: clicking one sets it and clears the other, clicking it again
+clears the flag. **Original** shows the uncropped photo.
 **Crop** toggles the crop overlay; drag to draw, then **Apply crop**
 (or `Enter`). `Esc` leaves crop mode without applying.
-
-### Tags
-
-Type tags (comma-separated) in the toolbar entry and press **Add tag** (or
-Enter). Prefix with `-` (e.g. `-alps`) to remove instead. The status bar
-shows the tags shared by all selected photos.
 
 ## Sidecar format
 
@@ -113,7 +109,6 @@ shows the tags shared by all selected photos.
 {
   "flag": "pick",
   "rotation": 90,
-  "tags": ["alps", "trip"],
   "crop": [0.1, 0.2, 0.8, 0.9]
 }
 ```
@@ -136,7 +131,7 @@ Deleting the sidecar file resets the photo to its original state.
   headless unit tests for the shared library (scanning, sidecar JSON,
   EXIF/rotation/crop pipeline, thumbnail caches, shared operations).
 - `tests/test_app.py` — drives the real grid app (selection, filters,
-  tagging, thumbnails, keyboard guard, embedded viewer).
+  thumbnails, keyboard guard, embedded viewer).
 - `tests/test_viewer.py` — drives the viewer as its own application
   (crop/rotate/flags, remove-current, standalone entry point).
 - GUI tests need an X display and are skipped automatically when none is
@@ -146,7 +141,12 @@ Deleting the sidecar file resets the photo to its original state.
 
 Toolbar icons in `photofx/icons/` come from IconArchive:
 
-- **wefunction woofunction** set (folder, arrows, star, star-off, close,
-  pencil) — GPL, https://www.iconarchive.com/show/woofunction-icons-by-wefunction.html
-- **Koloria** set by GraphicRating (trash) — free for commercial use,
+- **wefunction woofunction** set (folder, star, close) — GPL,
+  https://www.iconarchive.com/show/woofunction-icons-by-wefunction.html
+- **Koloria** set by GraphicRating (prev, next, zoom in, zoom out, trash) —
+  free for commercial use,
   https://www.iconarchive.com/show/koloria-icons-by-graphicrating.2.html
+- **Farm-Fresh** web icons by FatCow (crop) — free for commercial use,
+  https://www.iconarchive.com/show/farm-fresh-icons-by-fatcow.html
+- **Oxygen** set by oxygen-icons.org (rotate) — LGPL,
+  https://www.iconarchive.com/show/oxygen-icons-by-oxygen-icons.org.html

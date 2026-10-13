@@ -15,6 +15,8 @@ from photofx.lib.render import open_rotated
 MARGIN = 30          # px around the image in the viewer
 HANDLE = 12           # px hit zone for crop borders/corners
 DARK = "#101010"
+ZOOM_STEP = 1.25      # wheel / key zoom factor per step
+ZOOM_MAX = 8.0        # zoom is at least 1.0 (fit to window)
 
 
 class Viewer(tk.Toplevel):
@@ -33,6 +35,10 @@ class Viewer(tk.Toplevel):
         self._drag: tuple | None = None
         self._show_job = None      # pending debounced redraw
         self._last_size = None     # canvas size the image was last rendered for
+        self.zoom = 1.0            # multiplier on the fit-to-window scale
+        self.pan_x = 0             # image offset from centered, in canvas px
+        self.pan_y = 0
+        self.show_original = False
 
         self.title("photofx viewer")
         self.geometry("1100x780")
@@ -55,6 +61,11 @@ class Viewer(tk.Toplevel):
         self.bind("u", lambda e: self.set_flag(None))
         self.bind("bracketleft", lambda e: self.rotate(-90))
         self.bind("bracketright", lambda e: self.rotate(90))
+        self.bind("<plus>", lambda e: self._zoom_by(ZOOM_STEP))
+        self.bind("<equal>", lambda e: self._zoom_by(ZOOM_STEP))
+        self.bind("<minus>", lambda e: self._zoom_by(1 / ZOOM_STEP))
+        self.bind("<Key-0>", lambda e: self._zoom_reset())
+        self.canvas.bind("<MouseWheel>", self._on_wheel)
         self.bind("<Delete>", self._delete_current)
         self.focus_force()
         self._schedule_show()
@@ -65,18 +76,22 @@ class Viewer(tk.Toplevel):
         bar.pack(side="bottom", fill="x")
         def btn(text, cmd, icon=None, hint=None):
             return ui.tool_button(bar, text, cmd, icon=icon, hint=hint)
-        btn("◀ Prev", lambda: self.navigate(-1), hint="Previous  ←")
-        btn("Next ▶", lambda: self.navigate(1), hint="Next  →")
+        btn("Prev", lambda: self.navigate(-1), icon="prev", hint="Previous  ←")
+        btn("Next", lambda: self.navigate(1), icon="next", hint="Next  →")
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=4)
-        btn("Rotate left", lambda: self.rotate(-90), icon="arrow-left", hint="Rotate left  [")
-        btn("Rotate right", lambda: self.rotate(90), icon="arrow-right", hint="Rotate right  ]")
-        btn("Crop", self.toggle_crop, icon="pencil", hint="Crop overlay")
+        btn("Rotate", lambda: self.rotate(90), icon="rotate", hint="Rotate 90 right  ]")
+        btn("Crop", self.toggle_crop, icon="crop", hint="Crop overlay")
         btn("Apply crop", self.apply_crop)
         btn("Clear crop", self.clear_crop)
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=4)
-        btn("Pick", lambda: self.set_flag(PICK), icon="star", hint="Pick  P")
-        btn("Reject", lambda: self.set_flag(REJECT), icon="close", hint="Reject  X")
-        btn("Clear flag", lambda: self.set_flag(None), icon="star-off", hint="Clear flag  U")
+        btn("Zoom in", self.zoom_in, icon="zoom-in", hint="Zoom in  + / wheel up")
+        btn("Zoom out", self.zoom_out, icon="zoom-out", hint="Zoom out  - / wheel down")
+        btn("Fit", self._zoom_reset, hint="Fit to window  0")
+        self.original_btn = btn("Original", self.toggle_original,
+                                hint="Show original (ignore crop)")
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=4)
+        self.pick_btn = btn("Pick", self.toggle_pick, icon="star", hint="Pick  P")
+        self.reject_btn = btn("Reject", self.toggle_reject, icon="close", hint="Reject  X")
         btn("Delete", self._delete_current, icon="trash", hint="Delete  Del")
         self.info = tk.Label(bar, fg="#aaa", bg=ui.PANEL, anchor="e")
         self.info.pack(side="right", padx=8)
@@ -123,35 +138,122 @@ class Viewer(tk.Toplevel):
         self._last_size = (self.canvas.winfo_width(), self.canvas.winfo_height())
         avail_w, avail_h = cw - 2 * MARGIN, ch - 2 * MARGIN
         bw, bh = self.base.size
-        scale = min(avail_w / bw, avail_h / bh)
-        dw, dh = max(1, int(bw * scale)), max(1, int(bh * scale))
-        ox, oy = (cw - dw) // 2, (ch - dh) // 2
+
+        disp_img = self.base
+        if photo.crop is not None and not self.crop_mode and not self.show_original:
+            x0, y0, x1, y1 = photo.crop
+            disp_img = self.base.crop((int(x0 * bw), int(y0 * bh), int(x1 * bw), int(y1 * bh)))
+            scale = min(avail_w / disp_img.width, avail_h / disp_img.height) * self.zoom
+            dw, dh = max(1, int(disp_img.width * scale)), max(1, int(disp_img.height * scale))
+        else:
+            scale = min(avail_w / bw, avail_h / bh) * self.zoom
+            dw, dh = max(1, int(bw * scale)), max(1, int(bh * scale))
+
+        # centered position plus pan, clamped so the image stays reachable
+        ox = (cw - dw) // 2 + self.pan_x
+        oy = (ch - dh) // 2 + self.pan_y
+        if dw > cw:
+            ox = min(0, max(cw - dw, ox))
+        else:
+            self.pan_x = 0
+            ox = (cw - dw) // 2
+        if dh > ch:
+            oy = min(0, max(ch - dh, oy))
+        else:
+            self.pan_y = 0
+            oy = (ch - dh) // 2
         self.img_box = (ox, oy, ox + dw, oy + dh)
 
-        shown = self.base
-        if photo.crop is not None and not self.crop_mode:
-            x0, y0, x1, y1 = photo.crop
-            shown = self.base.crop((int(x0 * bw), int(y0 * bh), int(x1 * bw), int(y1 * bh)))
-            # fit cropped view
-            cscale = min(avail_w / shown.width, avail_h / shown.height)
-            dw2, dh2 = max(1, int(shown.width * cscale)), max(1, int(shown.height * cscale))
-            ox, oy = (cw - dw2) // 2, (ch - dh2) // 2
-            self.img_box = (ox, oy, ox + dw2, oy + dh2)
-            disp_img = shown
-            dw, dh = dw2, dh2
-        else:
-            disp_img = self.base
-        disp_img = disp_img.resize((dw, dh), Image.LANCZOS)
-        self.disp = ImageTk.PhotoImage(disp_img)
+        self.disp = ImageTk.PhotoImage(disp_img.resize((dw, dh), Image.LANCZOS))
         self.canvas.create_image(ox, oy, image=self.disp, anchor="nw")
 
         if self.crop_mode and self.draft is not None:
             self._draw_overlay()
         name = photo.name
-        flags = {"pick": "  ★", "reject": "  ✕"}.get(photo.flag, "")
-        tags = ("  " + " ".join("#" + t for t in sorted(photo.tags))) if photo.tags else ""
-        crop_note = "  [cropped]" if photo.crop else ""
-        self.info.configure(text=f"{self.index + 1}/{len(self.photos)}  {name}{flags}{crop_note}{tags}")
+        flags = {"pick": "  PICK", "reject": "  REJECT"}.get(photo.flag, "")
+        if self.crop_mode:
+            crop_note = ""
+        elif self.show_original and photo.crop:
+            crop_note = "  [original]"
+        elif photo.crop:
+            crop_note = "  [cropped]"
+        else:
+            crop_note = ""
+        zoom_note = f"  {round(self.zoom * 100)}%" if self.zoom > 1.005 else ""
+        self.info.configure(
+            text=f"{self.index + 1}/{len(self.photos)}  {name}{flags}{crop_note}{zoom_note}")
+        self._sync_flag_buttons()
+
+    # ----------------------------------------------------------------- zoom
+    def zoom_in(self):
+        self._zoom_by(ZOOM_STEP)
+
+    def zoom_out(self):
+        self._zoom_by(1 / ZOOM_STEP)
+
+    def _zoom_reset(self):
+        self.zoom = 1.0
+        self.pan_x = self.pan_y = 0
+        self._schedule_show()
+
+    def _reset_view(self):
+        """New photo or changed view: back to fit-to-window."""
+        self.zoom = 1.0
+        self.pan_x = self.pan_y = 0
+
+    def _on_wheel(self, event):
+        self._zoom_by(ZOOM_STEP if event.delta > 0 else 1 / ZOOM_STEP,
+                      event.x, event.y)
+
+    def _zoom_by(self, factor, cx=None, cy=None):
+        if self.photo is None:
+            return
+        new_zoom = max(1.0, min(ZOOM_MAX, self.zoom * factor))
+        if new_zoom == self.zoom:
+            return
+        if cx is not None:      # keep the point under the cursor stationary
+            ox, oy, ox2, oy2 = self.img_box
+            dw, dh = ox2 - ox, oy2 - oy
+            cw = max(self.canvas.winfo_width(), 100)
+            ch = max(self.canvas.winfo_height(), 100)
+            ratio = new_zoom / self.zoom
+            rx = (cx - ox) / dw if dw else 0.5
+            ry = (cy - oy) / dh if dh else 0.5
+            self.pan_x = cx - rx * dw * ratio - (cw - dw * ratio) / 2
+            self.pan_y = cy - ry * dh * ratio - (ch - dh * ratio) / 2
+        self.zoom = new_zoom
+        self._schedule_show()
+
+    def _cancel_show_job(self):
+        if self._show_job is not None:
+            try:
+                self.after_cancel(self._show_job)
+            except tk.TclError:
+                pass
+            self._show_job = None
+
+    def _pan_by(self, dx, dy):
+        """Shift the displayed image by (dx, dy), clamped to reachable edges."""
+        ox, oy, ox2, oy2 = self.img_box
+        dw, dh = ox2 - ox, oy2 - oy
+        cw, ch = self.canvas.winfo_width(), self.canvas.winfo_height()
+        nx = ox + dx
+        ny = oy + dy
+        if dw > cw:
+            nx = min(0, max(cw - dw, nx))
+        else:
+            nx = (cw - dw) // 2
+        if dh > ch:
+            ny = min(0, max(ch - dh, ny))
+        else:
+            ny = (ch - dh) // 2
+        if nx == ox and ny == oy:
+            return
+        self._cancel_show_job()  # move items; no need to re-render
+        self.canvas.move("all", nx - ox, ny - oy)
+        self.img_box = (nx, ny, nx + dw, ny + dh)
+        self.pan_x += nx - ox
+        self.pan_y += ny - oy
 
     # -------------------------------------------------------- crop overlay
     def _draw_overlay(self):
@@ -209,6 +311,7 @@ class Viewer(tk.Toplevel):
 
     def _crop_press(self, event):
         if not self.crop_mode:
+            self._drag = (event.x, event.y)     # start panning
             return
         x, y = self._rel(event)
         ox, oy, ox2, oy2 = self.img_box
@@ -224,7 +327,13 @@ class Viewer(tk.Toplevel):
             self._drag = (zone, x, y)
 
     def _crop_motion(self, event):
-        if not self.crop_mode or self._drag is None:
+        if self._drag is None:
+            return
+        if not self.crop_mode:                 # panning while zoomed in
+            dx = event.x - self._drag[0]
+            dy = event.y - self._drag[1]
+            self._drag = (event.x, event.y)
+            self._pan_by(dx, dy)
             return
         x, y = self._rel(event)
         ox, oy, ox2, oy2 = self.img_box
@@ -279,6 +388,7 @@ class Viewer(tk.Toplevel):
             return
         photo.crop = (x0, y0, x1, y1)
         self.crop_mode = False
+        self._reset_view()
         self._changed()
         self._show(keep_crop=True)
 
@@ -289,6 +399,7 @@ class Viewer(tk.Toplevel):
         photo.crop = None
         self.draft = None
         self.crop_mode = False
+        self._reset_view()
         self._changed()
         self._show(keep_crop=True)
 
@@ -299,6 +410,7 @@ class Viewer(tk.Toplevel):
         apply_rotation(photo, degrees)
         self.draft = None
         self._base_key = None
+        self._reset_view()
         self._changed()
         self._show(keep_crop=True)
 
@@ -313,6 +425,7 @@ class Viewer(tk.Toplevel):
         self.draft = None
         self.crop_mode = False
         self._base_key = None
+        self._reset_view()
         self._show()
 
     def set_flag(self, flag: str | None):
@@ -322,6 +435,32 @@ class Viewer(tk.Toplevel):
         photo.flag = flag
         self._changed()
         self._show(keep_crop=True)
+
+    def toggle_pick(self):
+        self._toggle_flag(PICK)
+
+    def toggle_reject(self):
+        self._toggle_flag(REJECT)
+
+    def _toggle_flag(self, flag: str):
+        """Clicking Pick/Reject: set it (dropping the other), or clear when already set."""
+        photo = self.photo
+        if photo is None:
+            return
+        photo.flag = None if photo.flag == flag else flag
+        self._changed()
+        self._show(keep_crop=True)
+
+    def toggle_original(self):
+        self.show_original = not self.show_original
+        self._sync_flag_buttons()
+        self._schedule_show()
+
+    def _sync_flag_buttons(self):
+        flag = self.photo.flag if self.photo is not None else None
+        ui.set_toggled(self.pick_btn, flag == PICK)
+        ui.set_toggled(self.reject_btn, flag == REJECT)
+        ui.set_toggled(self.original_btn, self.show_original)
 
     def _delete_current(self):
         photo = self.photo
@@ -337,6 +476,7 @@ class Viewer(tk.Toplevel):
         self.draft = None
         self._base_key = None
         self.crop_mode = False
+        self._reset_view()
         self._show()
 
     def _changed(self):

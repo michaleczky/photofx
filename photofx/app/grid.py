@@ -113,7 +113,7 @@ class PhotoGrid(tk.Canvas):
             self.create_rectangle(cell[0], cell[1], cell[0] + self.thumb_size, cell[1] + self.thumb_size,
                                   fill="#2a2a2a", outline="", tags=("ph:" + s,))
             self.create_text(cell[0] + self.thumb_size // 2, cell[1] + self.thumb_size // 2,
-                              text="…", fill="#777", tags=("ph:" + s,))
+                              text="...", fill="#777", tags=("ph:" + s,))
         # flag badge
         if photo.flag:
             color = FLAG_COLORS[photo.flag]
@@ -127,11 +127,8 @@ class PhotoGrid(tk.Canvas):
             self.create_text(cell[0] + 8, cell[1] + 10, text="⌗", fill="#4a9eff",
                               font=("TkDefaultFont", 12), tags=("ov:" + s,))
         # caption
-        caption = photo.name
-        if photo.tags:
-            caption = f"{photo.name}  #{len(photo.tags)}"
         self.create_text(cell[0] + self.thumb_size // 2, cell[1] + self.thumb_size + 8,
-                         width=self.thumb_size, text=caption, anchor="n",
+                         width=self.thumb_size, text=photo.name, anchor="n",
                          fill="#cccccc" if selected else "#999999",
                          font=("TkDefaultFont", 8))
         # selected order marker

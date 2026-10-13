@@ -70,7 +70,7 @@ class ThumbCache:
             mtime = photo.path.stat().st_mtime_ns
         except OSError:
             mtime = 0
-        return (str(photo.path), mtime, photo.rotation, photo.crop, tuple(sorted(photo.tags)), size)
+        return (str(photo.path), mtime, photo.rotation, photo.crop, size)
 
     def get(self, photo: Photo, size: int) -> Image.Image | None:
         with self._lock:

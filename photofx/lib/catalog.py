@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp"}
@@ -20,7 +20,6 @@ class Photo:
     flag: str | None = None          # "pick" | "reject" | None
     rotation: int = 0                # 0, 90, 180, 270 (clockwise, on top of EXIF)
     crop: tuple[float, float, float, float] | None = None  # x0, y0, x1, y1 in 0..1, rotated space
-    tags: set[str] = field(default_factory=set)
 
     @property
     def name(self) -> str:
@@ -48,14 +47,11 @@ def load_photo(path: Path) -> Photo:
             x0, y0, x1, y1 = crop
             if all(isinstance(v, (int, float)) for v in (x0, y0, x1, y1)):
                 photo.crop = (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
-        tags = data.get("tags")
-        if isinstance(tags, list):
-            photo.tags = {str(t) for t in tags}
     return photo
 
 
 def save_photo(photo: Photo) -> None:
-    data: dict = {"flag": photo.flag, "rotation": photo.rotation, "tags": sorted(photo.tags)}
+    data: dict = {"flag": photo.flag, "rotation": photo.rotation}
     if photo.crop is not None:
         data["crop"] = [round(v, 6) for v in photo.crop]
     photo.sidecar.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")

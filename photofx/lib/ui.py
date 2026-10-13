@@ -18,7 +18,6 @@ BUTTON_HOVER = "#3d3d44"   # hovered button
 BUTTON_PRESSED = "#222226"
 FIELD = "#333337"          # entry and combobox fields
 FG = "#cccccc"
-FG_PLACEHOLDER = "#888888"
 FG_ENTRY = "#dddddd"
 SEPARATOR = "#3a3a3d"
 ACCENT = "#4a9eff"
@@ -40,6 +39,16 @@ def dark_style(widget: tk.Misc) -> ttk.Style:
               lightcolor=[("pressed", BUTTON_PRESSED), ("active", BUTTON_HOVER)],
               darkcolor=[("pressed", BUTTON_PRESSED), ("active", BUTTON_HOVER)],
               bordercolor=[("pressed", BUTTON_PRESSED), ("active", BUTTON_HOVER)],
+              foreground=[("disabled", "#666666")])
+    style.configure("Accent.TButton", background=ACCENT, foreground="#ffffff",
+                    borderwidth=0, lightcolor=ACCENT, darkcolor=ACCENT,
+                    bordercolor=ACCENT, focusthickness=0, padding=(10, 5))
+    style.map("Accent.TButton",
+              background=[("disabled", BUTTON), ("pressed", "#3f86dd"),
+                          ("active", "#63a9ff")],
+              lightcolor=[("pressed", "#3f86dd"), ("active", "#63a9ff")],
+              darkcolor=[("pressed", "#3f86dd"), ("active", "#63a9ff")],
+              bordercolor=[("pressed", "#3f86dd"), ("active", "#63a9ff")],
               foreground=[("disabled", "#666666")])
     style.configure("TEntry", fieldbackground=FIELD, foreground=FG_ENTRY,
                     bordercolor=SEPARATOR, lightcolor=SEPARATOR, darkcolor=SEPARATOR,
@@ -72,6 +81,11 @@ def tool_button(bar: tk.Misc, text: str, command, icon: str | None = None,
         Tooltip(button, hint or text)
     button.pack(side="left", padx=2, pady=3)
     return button
+
+
+def set_toggled(button: ttk.Button, on: bool) -> None:
+    """Show a toolbar button as pressed (accent) or released (normal)."""
+    button.configure(style="Accent.TButton" if on else "TButton")
 
 
 class Tooltip:

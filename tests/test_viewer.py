@@ -39,6 +39,114 @@ def viewer(photo_dir):
 
 
 @requires_display
+class TestFlagToggles:
+    def test_toggle_pick_sets_then_clears(self, viewer, photo_dir):
+        viewer.toggle_pick()
+        assert viewer.photo.flag == "pick"
+        assert load_photo(photo_dir / viewer.photo.name).flag == "pick"
+        viewer.toggle_pick()
+        assert viewer.photo.flag is None
+        assert load_photo(photo_dir / viewer.photo.name).flag is None
+
+    def test_pick_replaces_reject_and_vice_versa(self, viewer):
+        viewer.set_flag("reject")
+        viewer.toggle_pick()
+        assert viewer.photo.flag == "pick"
+        viewer.toggle_reject()
+        assert viewer.photo.flag == "reject"
+
+    def test_buttons_show_toggled_state(self, viewer):
+        viewer.toggle_pick()
+        viewer._show(keep_crop=True)
+        assert viewer.pick_btn.cget("style") == "Accent.TButton"
+        assert viewer.reject_btn.cget("style") == "TButton"
+        viewer.toggle_pick()
+        viewer._show(keep_crop=True)
+        assert viewer.pick_btn.cget("style") == "TButton"
+
+    def test_info_label_shows_capital_flag(self, viewer):
+        viewer.set_flag("reject")
+        text = viewer.info.cget("text")
+        assert "REJECT" in text
+        assert viewer.photo.name in text
+
+
+@requires_display
+class TestZoom:
+    def test_zoom_in_out_clamped_to_fit(self, viewer):
+        viewer._show()
+        viewer._zoom_by(1.25)
+        assert viewer.zoom == 1.25
+        viewer._zoom_by(1 / 1.25)
+        assert viewer.zoom == 1.0
+        viewer._zoom_by(1 / 1.25)   # cannot go below fit
+        assert viewer.zoom == 1.0
+
+    def test_wheel_zooms(self, viewer):
+        class Ev:
+            delta = 120
+            x = 10
+            y = 10
+        viewer._show()
+        viewer._on_wheel(Ev())
+        assert viewer.zoom == 1.25
+
+    def test_wheel_zoom_out(self, viewer):
+        class Ev:
+            delta = -120
+            x = 10
+            y = 10
+        viewer._show()
+        viewer._zoom_by(1.25)
+        viewer._on_wheel(Ev())
+        assert viewer.zoom == 1.0
+
+    def test_pan_moves_and_clamps(self, viewer):
+        viewer._show()
+        viewer._zoom_by(1.25)               # image now larger than the window
+        viewer._show(keep_crop=True)
+        old = viewer.img_box
+        viewer._pan_by(-5, -5)
+        assert viewer.img_box[0] == old[0] - 5      # within bounds: exact shift
+        dw = old[2] - old[0]
+        viewer._pan_by(-10 ** 6, -10 ** 6)          # way out: clamped
+        assert viewer.img_box[0] == viewer.canvas.winfo_width() - dw
+
+    def test_zoom_resets_on_navigate(self, viewer):
+        viewer._show()
+        viewer._zoom_by(1.25)
+        viewer.navigate(1)
+        assert viewer.zoom == 1.0
+        assert (viewer.pan_x, viewer.pan_y) == (0, 0)
+
+
+@requires_display
+class TestShowOriginal:
+    def test_original_shows_uncropped(self, viewer):
+        photo = viewer.photos[0]
+        viewer.toggle_crop()
+        viewer.draft = [0.1, 0.1, 0.6, 0.7]
+        viewer.apply_crop()
+        assert photo.crop is not None
+
+        viewer.toggle_original()
+        assert viewer.show_original is True
+        assert viewer.original_btn.cget("style") == "Accent.TButton"
+        viewer._show(keep_crop=True)
+        bw, bh = viewer.base.size
+        ox, oy, ox2, oy2 = viewer.img_box
+        assert abs((ox2 - ox) / (oy2 - oy) - bw / bh) < 0.01
+
+        viewer.toggle_original()
+        assert viewer.show_original is False
+        viewer._show(keep_crop=True)
+        ox, oy, ox2, oy2 = viewer.img_box
+        cw = photo.crop[2] - photo.crop[0]
+        chh = photo.crop[3] - photo.crop[1]
+        assert abs((ox2 - ox) / (oy2 - oy) - (bw * cw) / (bh * chh)) < 0.05
+
+
+@requires_display
 class TestViewerCrop:
     def test_crop_apply_persists(self, viewer, photo_dir):
         photo = viewer.photos[0]

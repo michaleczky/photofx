@@ -1,10 +1,17 @@
 """Toolbar icons loaded from photofx/icons, scaled for display.
 
 Credits:
-  folder, arrow-left, arrow-right, star, star-off, close, pencil:
+  folder, star, close:
     "wefunction woofunction" icon set — GPL (via iconarchive.com)
-  trash:
+  prev (Button-Back), next (Button-Next), zoom-in (Zoom-In),
+  zoom-out (Zoom-Out), trash:
     "Koloria" icon set by GraphicRating — free for commercial use
+    (via iconarchive.com)
+  crop (transform-crop):
+    "Farm-Fresh" web icons by FatCow — free for commercial use
+    (via iconarchive.com)
+  rotate (Actions-transform-rotate):
+    "Oxygen" icon set by oxygen-icons.org — LGPL
     (via iconarchive.com)
 """
 
