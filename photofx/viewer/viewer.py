@@ -31,6 +31,8 @@ class Viewer(tk.Toplevel):
         self.crop_mode = False
         self.draft: list[float] | None = None     # [x0,y0,x1,y1] rel to rotated image
         self._drag: tuple | None = None
+        self._show_job = None      # pending debounced redraw
+        self._last_size = None     # canvas size the image was last rendered for
 
         self.title("photofx viewer")
         self.geometry("1100x780")
@@ -42,7 +44,7 @@ class Viewer(tk.Toplevel):
         self.canvas.bind("<Button-1>", self._crop_press)
         self.canvas.bind("<B1-Motion>", self._crop_motion)
         self.canvas.bind("<ButtonRelease-1>", self._crop_release)
-        self.bind("<Configure>", lambda e: self._show(keep_crop=True))
+        self.bind("<Configure>", self._on_configure)
         self.bind("<Left>", lambda e: self.navigate(-1))
         self.bind("<Right>", lambda e: self.navigate(1))
         self.bind("<Escape>", self._exit_crop)
@@ -54,7 +56,7 @@ class Viewer(tk.Toplevel):
         self.bind("bracketright", lambda e: self.rotate(90))
         self.bind("<Delete>", self._delete_current)
         self.focus_force()
-        self._show()
+        self._schedule_show()
 
     # ------------------------------------------------------------- toolbar
     def _build_toolbar(self):
@@ -81,6 +83,25 @@ class Viewer(tk.Toplevel):
         self.info.pack(side="right", padx=8)
 
     # ------------------------------------------------------------ rendering
+    def _on_configure(self, event):
+        size = (self.canvas.winfo_width(), self.canvas.winfo_height())
+        if size == self._last_size:
+            return
+        self._schedule_show()
+
+    def _schedule_show(self):
+        """Debounced redraw: bursts of Configure events coalesce into one."""
+        if self._show_job is None:
+            self._show_job = self.after(30, self._show_scheduled)
+
+    def _show_scheduled(self):
+        self._show_job = None
+        try:
+            if self.winfo_exists():
+                self._show(keep_crop=True)
+        except tk.TclError:
+            pass
+
     @property
     def photo(self) -> Photo | None:
         if 0 <= self.index < len(self.photos):
@@ -100,6 +121,7 @@ class Viewer(tk.Toplevel):
 
         cw = max(self.canvas.winfo_width(), 100)
         ch = max(self.canvas.winfo_height(), 100)
+        self._last_size = (self.canvas.winfo_width(), self.canvas.winfo_height())
         avail_w, avail_h = cw - 2 * MARGIN, ch - 2 * MARGIN
         bw, bh = self.base.size
         scale = min(avail_w / bw, avail_h / bh)
