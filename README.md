@@ -54,6 +54,17 @@ python3 -m venv .venv
 (Or run with any Python ≥ 3.10 that has `tkinter` and Pillow installed:
 `python3 -m photofx`.)
 
+### Windowed launchers (.pyw)
+
+- `photofx.pyw` — grid application
+- `viewer.pyw [folder]` — viewer application
+
+On Windows these run under pythonw with no console window; on Linux they
+are plain executable scripts (double-clickable if you associate `.pyw`
+with your Python). If the interpreter that starts them lacks Pillow, they
+re-exec themselves with `.venv`'s Python, so desktop launchers work
+without any shell setup.
+
 ## Usage
 
 1. **Open folder…** and pick your photo folder.
