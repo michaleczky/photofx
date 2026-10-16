@@ -34,7 +34,7 @@ def app(photo_dir):
     application.open_folder(str(photo_dir))
     application.update()
     yield application
-    application.grid.pending.clear()  # no thumbnail pump after destroy
+    application.grid.thumbs.pending.clear()  # no thumbnail pump after destroy
     try:
         application.destroy()
     except Exception:
@@ -62,7 +62,7 @@ class TestFolderMemory:
         try:
             assert app.root_folder == photo_dir
         finally:
-            app.grid.pending.clear()
+            app.grid.thumbs.pending.clear()
             app.destroy()
 
     def test_pictures_dir_is_the_untouched_default(self, photo_dir, monkeypatch):
@@ -74,7 +74,7 @@ class TestFolderMemory:
             assert app.root_folder == photo_dir
             assert settings.saved_folder() is None  # fallback is not pinned
         finally:
-            app.grid.pending.clear()
+            app.grid.thumbs.pending.clear()
             app.destroy()
 
     def test_opening_a_folder_saves_it(self, app, photo_dir, tmp_path):
@@ -108,7 +108,7 @@ class TestFolderMemory:
             app.open_folder(str(photo_dir))
             names = {p.name for p in app.all_photos}
         finally:
-            app.grid.pending.clear()
+            app.grid.thumbs.pending.clear()
             app.destroy()
         assert names == {"IMG_0001.jpg", "beach.png", "sunset.jpg", "portrait.tif"}
         # ".secret.jpg" (dotfile) and "IMG_0002.jpg"/"DSC_0099.webp" (regexes) are gone
@@ -145,7 +145,7 @@ class TestGridCellRendering:
 
         photo = app.grid.filtered[0]
         path = str(photo.path)
-        app.grid.selection = {path}
+        app.grid.select({path})
         app.flag_selection("pick")
 
         deadline = time.monotonic() + 20
@@ -168,33 +168,33 @@ class TestGridCellRendering:
 class TestFlagToggleButtons:
     def test_toggle_pick_sets_then_clears(self, app, photo_dir):
         photos = app.grid.filtered[:3]
-        app.grid.selection = {str(p.path) for p in photos}
+        app.grid.select({str(p.path) for p in photos})
         app.toggle_pick()
         assert all(load_photo(photo_dir / p.name).flag == "pick" for p in photos)
-        assert app.pick_btn.cget("style") == "Accent.TButton"
+        assert app.toolbar.pick_btn.cget("style") == "Accent.TButton"
         app.toggle_pick()                      # toggling again clears
         assert all(p.flag is None for p in photos)
-        assert app.pick_btn.cget("style") == "TButton"
+        assert app.toolbar.pick_btn.cget("style") == "TButton"
 
     def test_pick_removes_reject(self, app):
         photos = app.grid.filtered[:2]
-        app.grid.selection = {str(p.path) for p in photos}
+        app.grid.select({str(p.path) for p in photos})
         app.toggle_reject()
         assert all(p.flag == "reject" for p in photos)
         app.toggle_pick()
         assert all(p.flag == "pick" for p in photos)
-        assert app.reject_btn.cget("style") == "TButton"
+        assert app.toolbar.reject_btn.cget("style") == "TButton"
 
     def test_mixed_selection_keeps_button_untoggled(self, app):
         photos = app.grid.filtered[:2]
-        app.grid.selection = {str(photos[0].path)}
+        app.grid.select({str(photos[0].path)})
         app.flag_selection("pick")                    # only photos[0] is picked
-        app.grid.selection = {str(photos[1].path)}    # now only the unpicked one
+        app.grid.select({str(photos[1].path)})    # now only the unpicked one
         app._update_status()
-        assert app.pick_btn.cget("style") == "TButton"
-        app.grid.selection = {str(photos[0].path)}    # the picked one: pressed
+        assert app.toolbar.pick_btn.cget("style") == "TButton"
+        app.grid.select({str(photos[0].path)})    # the picked one: pressed
         app._update_status()
-        assert app.pick_btn.cget("style") == "Accent.TButton"
+        assert app.toolbar.pick_btn.cget("style") == "Accent.TButton"
 
 
 @requires_display
@@ -210,9 +210,9 @@ class TestGridSelection:
         app.grid.columns = 3
         click(app.grid, 0)
         click(app.grid, 2, state=0x0004)   # ctrl
-        assert len(app.grid.selection) == 2
+        assert len(app.grid.selection.paths) == 2
         click(app.grid, 0, state=0x0004)   # ctrl again removes
-        assert len(app.grid.selection) == 1
+        assert len(app.grid.selection.paths) == 1
 
     def test_shift_click_selects_range(self, app):
         app.grid.columns = 3
@@ -228,19 +228,19 @@ class TestGridSelection:
         click(app.grid, 0, state=0x0004)
         click(app.grid, 1, state=0x0004)
         click(app.grid, 2)                  # no modifier -> replace
-        assert len(app.grid.selection) == 1
+        assert len(app.grid.selection.paths) == 1
 
     def test_click_on_empty_area_clears(self, app):
         app.grid.columns = 3
         click(app.grid, 0)
         app.grid._on_click(FakeEvent(5, 100000, state=0))  # far below grid
-        assert app.grid.selection == set()
+        assert app.grid.selection.paths == set()
 
     def test_select_all_and_clear(self, app):
         app.grid.select_all()
-        assert len(app.grid.selection) == len(app.grid.filtered)
+        assert len(app.grid.selection.paths) == len(app.grid.filtered)
         app.grid.clear_selection()
-        assert app.grid.selection == set()
+        assert app.grid.selection.paths == set()
 
     def test_move_selection_clamps_and_updates_anchor(self, app):
         app.grid.columns = 3
@@ -257,7 +257,7 @@ class TestGridSelection:
         victim = app.grid.filtered[0]
         app.grid.select_all()
         app.grid.remove_paths([str(victim.path)])
-        assert str(victim.path) not in app.grid.selection
+        assert str(victim.path) not in app.grid.selection.paths
         assert victim not in app.grid.photos
         assert len(app.grid.filtered) == len(app.all_photos) - 1
 
@@ -266,9 +266,9 @@ class TestGridSelection:
 class TestFilters:
     def test_flag_filters(self, app):
         photos = app.grid.filtered
-        app.grid.selection = {str(photos[0].path), str(photos[1].path)}
+        app.grid.select({str(photos[0].path), str(photos[1].path)})
         app.flag_selection("pick")
-        app.grid.selection = {str(photos[2].path)}
+        app.grid.select({str(photos[2].path)})
         app.flag_selection("reject")
 
         for name, expected in (
@@ -277,15 +277,15 @@ class TestFilters:
             ("Without rejects", {p.name for p in photos} - {photos[2].name}),
             ("Unflagged", {p.name for p in photos[2:]} - {photos[2].name}),
         ):
-            app.filter_box.set(name)
+            app.toolbar.filter_box.set(name)
             app._filter_changed()
             assert {p.name for p in app.grid.filtered} == expected, name
 
     def test_all_photos_shows_everything(self, app):
-        app.filter_box.set("Rejected")
+        app.toolbar.filter_box.set("Rejected")
         app._filter_changed()
         assert app.grid.filtered == []
-        app.filter_box.set("All photos")
+        app.toolbar.filter_box.set("All photos")
         app._filter_changed()
         assert len(app.grid.filtered) == len(app.all_photos)
 
@@ -294,14 +294,14 @@ class TestFilters:
 class TestOperations:
     def test_flag_selection_persists_sidecars(self, app, photo_dir):
         photos = app.grid.filtered[:3]
-        app.grid.selection = {str(p.path) for p in photos}
+        app.grid.select({str(p.path) for p in photos})
         app.flag_selection("pick")
         for p in photos:
             assert load_photo(photo_dir / p.name).flag == "pick"
 
     def test_rotate_selection_persists(self, app, photo_dir):
         photos = app.grid.filtered[:2]
-        app.grid.selection = {str(p.path) for p in photos}
+        app.grid.select({str(p.path) for p in photos})
         app.rotate_selection(90)
         for p in photos:
             assert load_photo(photo_dir / p.name).rotation == 90
@@ -309,7 +309,7 @@ class TestOperations:
     def test_rotate_selection_remaps_crop(self, app, photo_dir):
         photo = app.grid.filtered[0]
         photo.crop = (0.1, 0.2, 0.8, 0.9)
-        app.grid.selection = {str(photo.path)}
+        app.grid.select({str(photo.path)})
         app.rotate_selection(90)
         stored = load_photo(photo_dir / photo.name)
         assert stored.rotation == 90
@@ -320,7 +320,7 @@ class TestOperations:
         import tkinter.messagebox
         monkeypatch.setattr(tkinter.messagebox, "askyesno", lambda *a, **k: True)
         victims = app.grid.filtered[:2]
-        app.grid.selection = {str(p.path) for p in victims}
+        app.grid.select({str(p.path) for p in victims})
         app.delete_selection()
 
         trash = photo_dir / ".photofx_trash"
@@ -337,13 +337,13 @@ class TestKeyboardGuard:
         assert app._typing() is False          # grid/nowhere -> shortcuts fire
         monkeypatch.setattr(app, "focus_get", lambda: app.grid)
         assert app._typing() is False
-        monkeypatch.setattr(app, "focus_get", lambda: app.filter_box)
+        monkeypatch.setattr(app, "focus_get", lambda: app.toolbar.filter_box)
         assert app._typing() is True           # combobox -> shortcuts suppressed
 
     def test_single_keys_ignored_in_combobox(self, app, monkeypatch):
         app.grid.select_all()
         app.flag_selection(None)
-        monkeypatch.setattr(app, "focus_get", lambda: app.filter_box)
+        monkeypatch.setattr(app, "focus_get", lambda: app.toolbar.filter_box)
         app._key_actions["p"]()
         app.update()
         assert all(p.flag is None for p in app.grid.selected_photos()), \
@@ -383,7 +383,7 @@ class TestThumbnailWorker:
         before = len(app.grid.tk_images)
         app.grid.select_all()
         app.flag_selection("pick")          # forces badge redraw + refresh_cells
-        app.filter_box.set("Picks")
+        app.toolbar.filter_box.set("Picks")
         app._filter_changed()
         assert self._wait_for(app, lambda: len(app.grid.tk_images) == 6)
         assert before == 6  # nothing was lost by the filter round-trip
@@ -394,7 +394,7 @@ class TestThumbnailWorker:
         cache_dir = photo_dir / ".photofx_cache" / "thumbs"
         assert self._wait_for(app, lambda: len(list(cache_dir.glob("*.jpg"))) >= 6)
         victim = app.grid.filtered[0]
-        app.grid.selection = {str(victim.path)}
+        app.grid.select({str(victim.path)})
         app.delete_selection()
         remaining = list(cache_dir.glob("*.jpg"))
         assert len(remaining) == 5  # only the victim's thumbnails were purged

@@ -18,6 +18,13 @@ photofx/
 │   ├── icons.py     # toolbar icons
 │   └── ops.py       # shared operations (rotation + crop remap, delete)
 ├── app/        # the grid application
+│   ├── main.py      # the window: folder, filters, selection operations
+│   ├── grid.py      # thumbnail grid: layout, events, cell patching
+│   ├── selection.py # selection state: click/ctrl/shift/drag semantics
+│   ├── thumbs.py    # thumbnail sourcing: cache, background worker, pump
+│   ├── cells.py     # painting of one grid cell (badges, captions)
+│   ├── filters.py   # named photo filters
+│   └── bars.py      # toolbar and status bar
 └── viewer/     # the viewer application
     ├── viewer.py    # the window: photo list, actions, event wiring
     ├── view.py      # image canvas: fit/zoom/pan rendering

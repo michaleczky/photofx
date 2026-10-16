@@ -1,4 +1,15 @@
-"""photofx main application window."""
+"""photofx grid application window.
+
+:class:`App` is the composition root and coordinator of the grid
+application. It owns the folder and its photo list, applies the current
+filter, runs selection operations (flag / rotate / delete) and wires the
+window together:
+
+- :class:`~photofx.app.grid.PhotoGrid` — the thumbnail grid
+- :class:`~photofx.app.filters.PhotoFilter` — the visible-photo filter
+- :class:`~photofx.app.bars.Toolbar` / :class:`~photofx.app.bars.StatusBar`
+- :class:`~photofx.viewer.viewer.Viewer` — opened over the visible photos
+"""
 
 from __future__ import annotations
 
@@ -11,54 +22,38 @@ from photofx.lib import ui
 from photofx.lib.ops import apply_rotation, delete_photo
 from photofx.lib.render import ThumbWorker
 from photofx.lib import settings
-from photofx.app.grid import PhotoGrid
+from photofx.app.bars import StatusBar, Toolbar
+from photofx.app.filters import PhotoFilter
+from photofx.app.grid import BG, PhotoGrid
 from photofx.viewer.viewer import Viewer
 
-FILTERS = ["All photos", "Picks", "Without rejects", "Rejected", "Unflagged"]
-FLAG_BY_LABEL = {"Pick": PICK, "Reject": REJECT}
+STATUS_HINT = ("Click to select · Ctrl-click to add · Shift-click for ranges "
+               "· double-click to view")
 
 
 class App(tk.Tk):
+    """The grid application window."""
+
     def __init__(self, restore_folder: bool = True):
         super().__init__()
         self.title("photofx")
         self.geometry("1280x820")
-        self.configure(bg="#1e1e1e")
+        self.configure(bg=BG)
         ui.dark_style(self)
 
         self.root_folder: Path | None = None
         self.all_photos: list[Photo] = []
-        self.filter_name = FILTERS[0]
+        self.filter = PhotoFilter()
         self.viewer: Viewer | None = None
 
-        self._build_toolbar()
+        self.toolbar = Toolbar(self)
         self._build_grid()
-        self._build_statusbar()
+        self.statusbar = StatusBar(self, bg=BG)
         self._bind_keys()
         if restore_folder:
             self._restore_last_folder()
 
     # ---------------------------------------------------------------- layout
-    def _build_toolbar(self):
-        bar = ttk.Frame(self)
-        bar.pack(side="top", fill="x", padx=6, pady=4)
-
-        def btn(text, cmd, icon=None, hint=None):
-            return ui.tool_button(bar, text, cmd, icon=icon, hint=hint)
-
-        btn("Open folder...", self.open_folder, icon="folder")
-        btn("Rotate", lambda: self.rotate_selection(90), icon="rotate",
-            hint="Rotate 90 right  ]")
-        self.pick_btn = btn("Pick", self.toggle_pick, icon="star", hint="Pick  P")
-        self.reject_btn = btn("Reject", self.toggle_reject, icon="close", hint="Reject  X")
-        btn("Delete", self.delete_selection, icon="trash", hint="Delete  Del")
-
-        ttk.Label(bar, text="Filter:").pack(side="left", padx=(12, 2))
-        self.filter_box = ttk.Combobox(bar, state="readonly", values=FILTERS, width=16)
-        self.filter_box.current(0)
-        self.filter_box.pack(side="left")
-        self.filter_box.bind("<<ComboboxSelected>>", self._filter_changed)
-
     def _build_grid(self):
         frame = ttk.Frame(self)
         frame.pack(side="top", fill="both", expand=True)
@@ -67,10 +62,6 @@ class App(tk.Tk):
         self.grid.scroll.pack(side="right", fill="y")
         self.grid.pack(side="left", fill="both", expand=True)
         self.grid.bind("<Button-3>", self._context_menu, add="+")
-
-    def _build_statusbar(self):
-        self.status = tk.Label(self, anchor="w", fg="#aaa", bg="#1e1e1e", padx=8)
-        self.status.pack(side="bottom", fill="x")
 
     def _typing(self) -> bool:
         """True when keyboard focus is in a text field — single-key shortcuts must not fire."""
@@ -116,8 +107,7 @@ class App(tk.Tk):
     def _set_folder(self, folder: Path, remember: bool = True):
         if remember:
             settings.save_folder(folder)
-        if self.grid.worker is not None:
-            self.grid.worker.shutdown()
+        self.grid.shutdown()
         self.root_folder = folder
         self.title(f"photofx — {folder.name}")
         self.all_photos = self._scan(folder)
@@ -133,8 +123,7 @@ class App(tk.Tk):
                 if not any(rx.search(p.name) for rx in excluded)]
 
     def destroy(self):
-        if self.grid.worker is not None:
-            self.grid.worker.shutdown()
+        self.grid.shutdown()
         super().destroy()
 
     def rescan(self):
@@ -144,24 +133,12 @@ class App(tk.Tk):
 
     # -------------------------------------------------------------- filtering
     def _filter_changed(self, _event=None):
-        self.filter_name = self.filter_box.get()
+        self.filter = PhotoFilter(self.toolbar.current_filter())
         self._apply_filter()
 
-    def _photo_matches(self, photo: Photo) -> bool:
-        f = self.filter_name
-        if f == "Picks" and photo.flag != PICK:
-            return False
-        if f == "Rejected" and photo.flag != REJECT:
-            return False
-        if f == "Without rejects" and photo.flag == REJECT:
-            return False
-        if f == "Unflagged" and photo.flag is not None:
-            return False
-        return True
-
     def _apply_filter(self, keep_selection=True):
-        visible = [p for p in self.all_photos if self._photo_matches(p)]
-        self.grid.set_photos(visible, keep_selection=keep_selection)
+        self.grid.set_photos(self.filter.apply(self.all_photos),
+                             keep_selection=keep_selection)
         self._update_status()
 
     # ------------------------------------------------------------ operations
@@ -196,11 +173,6 @@ class App(tk.Tk):
         else:
             self._each_selected(lambda p: setattr(p, "flag", flag))
 
-    def _sync_flag_buttons(self):
-        photos = self.grid.selected_photos()
-        ui.set_toggled(self.pick_btn, bool(photos) and all(p.flag == PICK for p in photos))
-        ui.set_toggled(self.reject_btn, bool(photos) and all(p.flag == REJECT for p in photos))
-
     def delete_selection(self):
         photos = self.grid.selected_photos()
         if not photos:
@@ -212,17 +184,23 @@ class App(tk.Tk):
                 f"Move {len(photos)} photo(s) to the .photofx_trash folder?\n\n{names}{more}\n\n"
                 "Originals are moved, not destroyed — you can restore them from the folder."):
             return
-        for photo in photos:
-            delete_photo(self.root_folder, photo)
-            self._purge_thumb(photo)
-        gone = [str(p.path) for p in photos]
-        self.all_photos = [p for p in self.all_photos if str(p.path) not in set(gone)]
-        self.grid.remove_paths(gone)
+        self._remove_from_library(photos)
         if self.viewer is not None and self.viewer.winfo_exists():
-            self.viewer.photos = [p for p in self.viewer.photos if str(p.path) not in set(gone)]
+            gone = {str(p.path) for p in photos}
+            self.viewer.photos = [p for p in self.viewer.photos
+                                  if str(p.path) not in gone]
             if self.viewer.photo is None:
                 self.viewer.navigate(0)
         self._update_status()
+
+    def _remove_from_library(self, photos: list[Photo]):
+        """Move photos to trash, purge their thumbnails, drop them everywhere."""
+        for photo in photos:
+            delete_photo(self.root_folder, photo)
+            self.grid.purge_thumbnail(photo)
+        gone = {str(p.path) for p in photos}
+        self.all_photos = [p for p in self.all_photos if str(p.path) not in gone]
+        self.grid.remove_paths(list(gone))
 
     # -------------------------------------------------------------- viewer
     def open_viewer(self, photo: Photo):
@@ -243,20 +221,12 @@ class App(tk.Tk):
     def _viewer_delete(self, photo: Photo):
         if not messagebox.askyesno("Delete", f"Move {photo.name} to .photofx_trash?"):
             return
-        delete_photo(self.root_folder, photo)
-        self._purge_thumb(photo)
-        gone = str(photo.path)
-        self.all_photos = [p for p in self.all_photos if str(p.path) != gone]
-        self.grid.remove_paths([gone])
+        self._remove_from_library([photo])
         viewer = self.viewer
         if viewer is not None and viewer.winfo_exists():
             viewer.remove_current()
             if not viewer.photos:
                 viewer.destroy()
-
-    def _purge_thumb(self, photo: Photo):
-        if self.grid.worker is not None:
-            self.grid.worker.disk.purge(photo.path)
 
     # -------------------------------------------------------- context menu
     def _context_menu(self, event):
@@ -264,10 +234,8 @@ class App(tk.Tk):
         if hit is None:
             return
         idx, photo = hit
-        if str(photo.path) not in self.grid.selection:
-            self.grid.selection = {str(photo.path)}
-            self.grid.anchor = idx
-            self.grid._redraw()
+        if str(photo.path) not in self.grid.selection.paths:
+            self.grid.select_one(idx)
         menu = tk.Menu(self, tearoff=0)
         menu.add_command(label="Open in viewer", command=lambda: self.open_viewer(photo))
         menu.add_separator()
@@ -302,10 +270,10 @@ class App(tk.Tk):
         elif sel:
             info = f"{len(sel)} selected"
         else:
-            info = "Click to select · Ctrl-click to add · Shift-click for ranges · double-click to view"
-        self.status.configure(
-            text=f"{visible} / {total} photos · {len(sel)} selected   |   {info}")
-        self._sync_flag_buttons()
+            info = STATUS_HINT
+        self.statusbar.set(
+            f"{visible} / {total} photos · {len(sel)} selected   |   {info}")
+        self.toolbar.sync_flags(sel)
 
 
 def main():
