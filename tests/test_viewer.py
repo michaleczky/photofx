@@ -192,6 +192,116 @@ class TestViewerCrop:
 
 
 @requires_display
+class TestCropToolbar:
+    def _pixel_ratio(self, viewer):
+        x0, y0, x1, y1 = viewer.draft
+        bw, bh = viewer.base.size
+        return (x1 - x0) * bw / ((y1 - y0) * bh)
+
+    def test_bar_shown_only_in_crop_mode(self, viewer):
+        viewer.update()
+        assert not viewer.crop_bar.winfo_ismapped()
+        viewer.toggle_crop()
+        viewer.update()
+        assert viewer.crop_bar.winfo_ismapped()
+        viewer._exit_crop()
+        viewer.update()
+        assert not viewer.crop_bar.winfo_ismapped()
+
+    def test_bar_sits_above_main_toolbar(self, viewer):
+        viewer.toggle_crop()
+        viewer.update()
+        assert viewer.crop_bar.winfo_rooty() < viewer.toolbar.winfo_rooty()
+
+    def test_apply_and_clear_live_in_crop_bar(self, viewer):
+        viewer.toggle_crop()
+        labels = [str(w.cget("text")) for w in viewer.crop_bar.winfo_children()
+                  if w.winfo_class() == "TButton"]
+        assert "Apply crop" in labels
+        assert "Clear crop" in labels
+
+    def test_ratio_selection_reshapes_draft(self, viewer):
+        viewer._show()
+        viewer.toggle_crop()
+        viewer.set_ratio("4:3")
+        assert viewer.ratio_label == "4:3"
+        assert abs(self._pixel_ratio(viewer) - 4 / 3) < 0.01
+        assert viewer.ratio_btns["4:3"].cget("style") == "Accent.TButton"
+
+    def test_ratio_toggle_returns_to_free_crop(self, viewer):
+        viewer._show()
+        viewer.toggle_crop()
+        viewer.set_ratio("16:9")
+        viewer.set_ratio("16:9")
+        assert viewer.ratio_label is None
+        assert viewer.ratio_btns["16:9"].cget("style") == "TButton"
+
+    def test_original_ratio_matches_image_aspect(self, viewer):
+        viewer._show()
+        viewer.toggle_crop()
+        viewer.set_ratio("original")
+        bw, bh = viewer.base.size
+        assert abs(self._pixel_ratio(viewer) - bw / bh) < 0.01
+
+    def test_orientation_swap_flips_ratio(self, viewer):
+        viewer._show()
+        viewer.toggle_crop()
+        viewer.set_ratio("4:3")
+        viewer.swap_orientation()
+        assert viewer.ratio_transposed is True
+        assert abs(self._pixel_ratio(viewer) - 3 / 4) < 0.01
+        assert viewer.orientation_btn.cget("style") == "Accent.TButton"
+        assert "3:4" in viewer.info.cget("text")
+
+    def test_swap_without_ratio_adopts_original(self, viewer):
+        viewer._show()
+        viewer.toggle_crop()
+        viewer.swap_orientation()
+        assert viewer.ratio_label == "original"
+        bw, bh = viewer.base.size
+        assert abs(self._pixel_ratio(viewer) - bh / bw) < 0.01
+
+    def test_edge_drag_keeps_ratio(self, viewer):
+        viewer._show()
+        viewer.toggle_crop()
+        viewer.set_ratio("1:1")
+        viewer._show(keep_crop=True)
+        ox, oy, ox2, oy2 = viewer.img_box
+        dw, dh = ox2 - ox, oy2 - oy
+
+        class Ev:
+            x = ox + 0.9 * dw
+            y = oy + 0.6 * dh
+        viewer._drag = ("e", 0.5, 0.5)
+        viewer._crop_motion(Ev())
+        x0, y0, x1, y1 = viewer.draft
+        bw, bh = viewer.base.size
+        assert abs((x1 - x0) * bw - (y1 - y0) * bh) < 2      # square in pixels
+
+    def test_new_rect_keeps_ratio(self, viewer):
+        viewer._show()
+        viewer.toggle_crop()
+        viewer.set_ratio("16:9")
+        rect = viewer._new_rect(0.2, 0.2, 0.8, 0.8)
+        bw, bh = viewer.base.size
+        w = (rect[2] - rect[0]) * bw
+        h = (rect[3] - rect[1]) * bh
+        assert abs(w / h - 16 / 9) < 0.01
+
+    def test_ratio_crop_applies(self, viewer, photo_dir):
+        photo = viewer.photos[0]
+        viewer._show()
+        viewer.toggle_crop()
+        viewer.set_ratio("4:3")
+        draft = tuple(viewer.draft)
+        viewer.apply_crop()
+        stored = load_photo(photo_dir / photo.name)
+        assert stored.crop is not None
+        assert all(abs(a - b) < 1e-9 for a, b in zip(stored.crop, draft))
+        assert viewer.crop_mode is False
+
+
+@requires_display
 class TestViewerNavigation:
     def test_navigate_wraps(self, viewer):
         viewer.navigate(-1)  # wraps to last

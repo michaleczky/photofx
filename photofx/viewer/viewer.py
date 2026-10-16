@@ -17,6 +17,7 @@ HANDLE = 12           # px hit zone for crop borders/corners
 DARK = "#101010"
 ZOOM_STEP = 1.25      # wheel / key zoom factor per step
 ZOOM_MAX = 8.0        # zoom is at least 1.0 (fit to window)
+RATIOS = ("original", "4:3", "16:9", "1:1")   # crop-ratio choices
 
 
 class Viewer(tk.Toplevel):
@@ -32,6 +33,8 @@ class Viewer(tk.Toplevel):
         self.img_box = (0, 0, 0, 0)               # canvas coords of displayed image
         self.crop_mode = False
         self.draft: list[float] | None = None     # [x0,y0,x1,y1] rel to rotated image
+        self.ratio_label: str | None = None       # None = free crop, else RATIOS entry
+        self.ratio_transposed = False             # True = portrait version of the ratio
         self._drag: tuple | None = None
         self._show_job = None      # pending debounced redraw
         self._last_size = None     # canvas size the image was last rendered for
@@ -74,15 +77,14 @@ class Viewer(tk.Toplevel):
     def _build_toolbar(self):
         bar = ttk.Frame(self)
         bar.pack(side="bottom", fill="x")
+        self.toolbar = bar
         def btn(text, cmd, icon=None, hint=None):
             return ui.tool_button(bar, text, cmd, icon=icon, hint=hint)
         btn("Prev", lambda: self.navigate(-1), icon="prev", hint="Previous  ←")
         btn("Next", lambda: self.navigate(1), icon="next", hint="Next  →")
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=4)
         btn("Rotate", lambda: self.rotate(90), icon="rotate", hint="Rotate 90 right  ]")
-        btn("Crop", self.toggle_crop, icon="crop", hint="Crop overlay")
-        btn("Apply crop", self.apply_crop)
-        btn("Clear crop", self.clear_crop)
+        self.crop_btn = btn("Crop", self.toggle_crop, icon="crop", hint="Crop overlay")
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=4)
         btn("Zoom in", self.zoom_in, icon="zoom-in", hint="Zoom in  + / wheel up")
         btn("Zoom out", self.zoom_out, icon="zoom-out", hint="Zoom out  - / wheel down")
@@ -95,6 +97,31 @@ class Viewer(tk.Toplevel):
         btn("Delete", self._delete_current, icon="trash", hint="Delete  Del")
         self.info = tk.Label(bar, fg="#aaa", bg=ui.PANEL, anchor="e")
         self.info.pack(side="right", padx=8)
+        self._build_crop_bar()
+
+    def _build_crop_bar(self):
+        """Crop tools; packed just above the toolbar while crop mode is on."""
+        bar = ttk.Frame(self)
+        self.crop_bar = bar
+        self.ratio_btns = {}
+        for label in RATIOS:
+            text = "Original" if label == "original" else label
+            self.ratio_btns[label] = ui.tool_button(
+                bar, text, lambda l=label: self.set_ratio(l),
+                hint=f"Crop ratio {label}" if label == "original" else f"Ratio {label}")
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=4)
+        self.orientation_btn = ui.tool_button(
+            bar, "Orientation", self.swap_orientation, hint="Swap crop orientation")
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=4)
+        ui.tool_button(bar, "Apply crop", self.apply_crop)
+        ui.tool_button(bar, "Clear crop", self.clear_crop)
+        self._sync_buttons()
+
+    def _set_crop_bar(self):
+        if self.crop_mode:
+            self.crop_bar.pack(side="bottom", fill="x", after=self.toolbar)
+        else:
+            self.crop_bar.pack_forget()
 
     # ------------------------------------------------------------ rendering
     def _on_configure(self, event):
@@ -172,7 +199,7 @@ class Viewer(tk.Toplevel):
         name = photo.name
         flags = {"pick": "  PICK", "reject": "  REJECT"}.get(photo.flag, "")
         if self.crop_mode:
-            crop_note = ""
+            crop_note = self._ratio_note()
         elif self.show_original and photo.crop:
             crop_note = "  [original]"
         elif photo.crop:
@@ -182,7 +209,7 @@ class Viewer(tk.Toplevel):
         zoom_note = f"  {round(self.zoom * 100)}%" if self.zoom > 1.005 else ""
         self.info.configure(
             text=f"{self.index + 1}/{len(self.photos)}  {name}{flags}{crop_note}{zoom_note}")
-        self._sync_flag_buttons()
+        self._sync_buttons()
 
     # ----------------------------------------------------------------- zoom
     def zoom_in(self):
@@ -342,7 +369,7 @@ class Viewer(tk.Toplevel):
         mode, *start = self._drag
         x0, y0, x1, y1 = self.draft
         if mode == "new":
-            self.draft = [min(start[0], x), min(start[1], y), max(start[0], x), max(start[1], y)]
+            self.draft = self._new_rect(start[0], start[1], x, y)
         elif mode == "move":
             w, h = x1 - x0, y1 - y0
             nx0 = min(max(x0 + x - start[0], 0.0), 1.0 - w)
@@ -358,24 +385,196 @@ class Viewer(tk.Toplevel):
             if "s" in mode:
                 y1 = max(y, y0 + 0.02)
             self.draft = [x0, y0, x1, y1]
+            self._enforce_ratio(mode)
         self._show(keep_crop=True)
+
+    # --------------------------------------------------------- crop ratio
+    def _ratio_note(self) -> str:
+        label = self.ratio_label
+        if label is None:
+            return ""
+        if self.ratio_transposed and ":" in label:
+            a, b = label.split(":")
+            label = f"{b}:{a}"
+        return f"  [{label}]"
+
+    def _effective_ratio(self) -> float | None:
+        """Active aspect ratio in *pixel* terms (w/h), or None for free crop."""
+        if self.ratio_label is None or self.base is None:
+            return None
+        if self.ratio_label == "original":
+            ratio = self.base.width / self.base.height
+        else:
+            a, b = self.ratio_label.split(":")
+            ratio = float(a) / float(b)
+        return 1.0 / ratio if self.ratio_transposed else ratio
+
+    def _fit_ratio(self):
+        """Reshape the draft crop to the active ratio, centered inside itself."""
+        ratio = self._effective_ratio()
+        if ratio is None or self.draft is None or self.base is None:
+            return
+        bw, bh = self.base.size
+        x0, y0, x1, y1 = self.draft
+        w, h = (x1 - x0) * bw, (y1 - y0) * bh
+        if w <= 0 or h <= 0:
+            return
+        if w / h > ratio:
+            w = h * ratio
+        else:
+            h = w / ratio
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        nw, nh = w / bw, h / bh
+        nx0 = min(max(cx - nw / 2, 0.0), 1.0 - nw)
+        ny0 = min(max(cy - nh / 2, 0.0), 1.0 - nh)
+        self.draft = [nx0, ny0, nx0 + nw, ny0 + nh]
+
+    def _new_rect(self, sx: float, sy: float, x: float, y: float) -> list[float]:
+        """Draft rect from drawing out a new crop; honors the active ratio."""
+        ratio = self._effective_ratio()
+        if ratio is None or self.base is None:
+            return [min(sx, x), min(sy, y), max(sx, x), max(sy, y)]
+        bw, bh = self.base.size
+        w = max(abs(x - sx) * bw, abs(y - sy) * bh * ratio)
+        h = w / ratio
+        max_w = (1 - sx if x >= sx else sx) * bw
+        max_h = (1 - sy if y >= sy else sy) * bh
+        if w > max_w:
+            w = max_w
+            h = w / ratio
+        if h > max_h:
+            h = max_h
+            w = h * ratio
+        ex = sx + (w / bw if x >= sx else -w / bw)
+        ey = sy + (h / bh if y >= sy else -h / bh)
+        return [min(sx, ex), min(sy, ey), max(sx, ex), max(sy, ey)]
+
+    def _enforce_ratio(self, mode: str):
+        """Keep a drag-resized draft at the active ratio.
+
+        Dragged edges win; the perpendicular dimension follows, anchored to
+        the opposite edge (corner drags) or the old center (edge drags).
+        """
+        ratio = self._effective_ratio()
+        if ratio is None or self.base is None or self.draft is None:
+            return
+        bw, bh = self.base.size
+        x0, y0, x1, y1 = self.draft
+        horiz = "w" in mode or "e" in mode
+        vert = "n" in mode or "s" in mode
+        if not (horiz or vert):
+            return
+        if horiz:
+            ax = x0 if "e" in mode else x1          # fixed x edge
+            max_w = (1 - ax if "e" in mode else ax) * bw
+        if vert:
+            ay = y0 if "s" in mode else y1          # fixed y edge
+            max_h = (1 - ay if "s" in mode else ay) * bh
+        w, h = (x1 - x0) * bw, (y1 - y0) * bh
+        if horiz and vert:
+            h = w / ratio
+            if h > max_h:
+                h = max_h
+                w = h * ratio
+            if w > max_w:
+                w = max_w
+                h = w / ratio
+            if "e" in mode:
+                x0, x1 = ax, ax + w / bw
+            else:
+                x1, x0 = ax, ax - w / bw
+            if "s" in mode:
+                y0, y1 = ay, ay + h / bh
+            else:
+                y1, y0 = ay, ay - h / bh
+        elif horiz:
+            h = w / ratio
+            if h > bh:
+                h = bh
+                w = h * ratio
+                if w > max_w:
+                    w = max_w
+                    h = w / ratio
+            cy = (y0 + y1) / 2                      # keep the vertical center
+            y0 = cy - h / (2 * bh)
+            y1 = y0 + h / bh
+            if y0 < 0:
+                y0, y1 = 0.0, h / bh
+            elif y1 > 1:
+                y0, y1 = 1.0 - h / bh, 1.0
+            if "e" in mode:
+                x0, x1 = ax, ax + w / bw
+            else:
+                x1, x0 = ax, ax - w / bw
+        else:
+            w = h * ratio
+            if w > bw:
+                w = bw
+                h = w / ratio
+                if h > max_h:
+                    h = max_h
+                    w = h * ratio
+            cx = (x0 + x1) / 2                      # keep the horizontal center
+            x0 = cx - w / (2 * bw)
+            x1 = x0 + w / bw
+            if x0 < 0:
+                x0, x1 = 0.0, w / bw
+            elif x1 > 1:
+                x0, x1 = 1.0 - w / bw, 1.0
+            if "s" in mode:
+                y0, y1 = ay, ay + h / bh
+            else:
+                y1, y0 = ay, ay - h / bh
+        self.draft = [min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)]
 
     def _crop_release(self, event):
         self._drag = None
 
     # ------------------------------------------------------------ actions
+    def _set_crop_mode(self, on: bool):
+        if self.crop_mode == on:
+            return
+        self.crop_mode = on
+        self._set_crop_bar()
+
     def toggle_crop(self):
         photo = self.photo
         if photo is None:
             return
-        self.crop_mode = not self.crop_mode
-        if self.crop_mode and self.draft is None:
-            self.draft = list(photo.crop) if photo.crop else [0.05, 0.05, 0.95, 0.95]
+        self._set_crop_mode(not self.crop_mode)
+        if self.crop_mode:
+            if self.draft is None:
+                photo = self.photo
+                self.draft = list(photo.crop) if photo.crop else [0.05, 0.05, 0.95, 0.95]
+            self._fit_ratio()
+        self._show(keep_crop=True)
+
+    def set_ratio(self, label: str):
+        """Select a crop ratio (clicking the active one returns to free crop)."""
+        if not self.crop_mode or label not in RATIOS:
+            return
+        if self.ratio_label == label:
+            self.ratio_label = None
+            self.ratio_transposed = False
+        else:
+            self.ratio_label = label
+            self.ratio_transposed = False
+            self._fit_ratio()
+        self._show(keep_crop=True)
+
+    def swap_orientation(self):
+        """Flip the active ratio between landscape and portrait."""
+        if not self.crop_mode:
+            return
+        if self.ratio_label is None:
+            self.ratio_label = "original"       # free crop: adopt the image aspect first
+        self.ratio_transposed = not self.ratio_transposed
+        self._fit_ratio()
         self._show(keep_crop=True)
 
     def _exit_crop(self):
         if self.crop_mode:
-            self.crop_mode = False
+            self._set_crop_mode(False)
             self._show(keep_crop=True)
             return "break"
 
@@ -387,7 +586,7 @@ class Viewer(tk.Toplevel):
         if (x1 - x0) < 0.02 or (y1 - y0) < 0.02:
             return
         photo.crop = (x0, y0, x1, y1)
-        self.crop_mode = False
+        self._set_crop_mode(False)
         self._reset_view()
         self._changed()
         self._show(keep_crop=True)
@@ -398,7 +597,7 @@ class Viewer(tk.Toplevel):
             return
         photo.crop = None
         self.draft = None
-        self.crop_mode = False
+        self._set_crop_mode(False)
         self._reset_view()
         self._changed()
         self._show(keep_crop=True)
@@ -423,7 +622,7 @@ class Viewer(tk.Toplevel):
         if self.index >= len(self.photos):
             self.index = max(0, len(self.photos) - 1)
         self.draft = None
-        self.crop_mode = False
+        self._set_crop_mode(False)
         self._base_key = None
         self._reset_view()
         self._show()
@@ -453,14 +652,18 @@ class Viewer(tk.Toplevel):
 
     def toggle_original(self):
         self.show_original = not self.show_original
-        self._sync_flag_buttons()
+        self._sync_buttons()
         self._schedule_show()
 
-    def _sync_flag_buttons(self):
+    def _sync_buttons(self):
         flag = self.photo.flag if self.photo is not None else None
         ui.set_toggled(self.pick_btn, flag == PICK)
         ui.set_toggled(self.reject_btn, flag == REJECT)
         ui.set_toggled(self.original_btn, self.show_original)
+        ui.set_toggled(self.crop_btn, self.crop_mode)
+        for label, button in self.ratio_btns.items():
+            ui.set_toggled(button, self.crop_mode and self.ratio_label == label)
+        ui.set_toggled(self.orientation_btn, self.crop_mode and self.ratio_transposed)
 
     def _delete_current(self):
         photo = self.photo
@@ -475,7 +678,7 @@ class Viewer(tk.Toplevel):
         self.index = (self.index + delta) % len(self.photos)
         self.draft = None
         self._base_key = None
-        self.crop_mode = False
+        self._set_crop_mode(False)
         self._reset_view()
         self._show()
 

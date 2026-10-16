@@ -29,6 +29,8 @@ photofx/
 - **Rotate**: 90° right per click, stored as metadata, never touching the file.
 - **Crop**: interactive crop in the viewer — drag to draw a rect, drag inside
   to move it, drag edges/corners to resize. Rule-of-thirds guides included.
+  In crop mode a second toolbar appears above the main one with crop ratios
+  (original, 4:3, 16:9, 1:1), an orientation swap, and apply/clear.
 - **Flag**: pick (★) / reject (✕) / clear.
 - **Filter**: picks / rejected / without rejects / unflagged.
 - **Delete**: moves photos (and their sidecars) into a `.photofx_trash` folder
@@ -101,7 +103,11 @@ image to pan while zoomed in. The **Pick**/**Reject** buttons are
 toggles: clicking one sets it and clears the other, clicking it again
 clears the flag. **Original** shows the uncropped photo.
 **Crop** toggles the crop overlay; drag to draw, then **Apply crop**
-(or `Enter`). `Esc` leaves crop mode without applying.
+(or `Enter`). `Esc` leaves crop mode without applying. While cropping, a
+toolbar above the main one holds the crop tools: ratio buttons (original,
+4:3, 16:9, 1:1 — click the active one again for a free crop),
+**Orientation** to flip the ratio between landscape and portrait, and
+apply/clear. The chosen ratio constrains the overlay while you drag.
 
 ## Sidecar format
 
