@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import tkinter as tk
 from tkinter import ttk
 
@@ -11,8 +12,9 @@ from photofx.lib.catalog import PICK, REJECT, Photo
 from photofx.lib.render import ThumbCache, load_thumb
 
 PAD = 10
-BADGE = 12
-FLAG_COLORS = {PICK: "#3aa757", REJECT: "#d95040"}
+STAR_FILL = "#ffcc00"
+FLAG_FILL = "#d95040"
+BADGE_OUTLINE = "#111111"
 
 
 class PhotoGrid(tk.Canvas):
@@ -21,6 +23,7 @@ class PhotoGrid(tk.Canvas):
         self.photos: list[Photo] = []
         self.filtered: list[Photo] = []
         self.selection: set[str] = set()
+        self._sel_order: list[str] = []  # paths in click order (pruned on redraw)
         self.anchor: int | None = None
         self.thumb_size = thumb_size
         self.cell_w = thumb_size + 2 * PAD
@@ -89,14 +92,24 @@ class PhotoGrid(tk.Canvas):
         height = rows * self.cell_h + PAD
         self.configure(scrollregion=(0, 0, max(self.winfo_width(), self.columns * self.cell_w + PAD), height))
         width = self.winfo_width()
+        order = self._selection_order()
         for i, photo in enumerate(self.filtered):
             col, row = i % self.columns, i // self.columns
             x = PAD + col * self.cell_w
             y = PAD + row * self.cell_h
-            self._draw_cell(photo, x, y, width)
+            self._draw_cell(photo, x, y, width, order)
         self._notify_selection()
 
-    def _draw_cell(self, photo: Photo, x: int, y: int, width: int):
+    def _selection_order(self) -> dict[str, int]:
+        """1-based click order per selected path, in the order they were picked."""
+        ordered = [s for s in self._sel_order if s in self.selection]
+        known = set(ordered)
+        ordered += [str(p.path) for p in self.filtered
+                    if str(p.path) in self.selection and str(p.path) not in known]
+        self._sel_order = ordered
+        return {s: i + 1 for i, s in enumerate(ordered)}
+
+    def _draw_cell(self, photo: Photo, x: int, y: int, width: int, order: dict[str, int]):
         s = str(photo.path)
         self._cell_origins[s] = (x, y)
         selected = s in self.selection
@@ -115,14 +128,10 @@ class PhotoGrid(tk.Canvas):
             self.create_text(cell[0] + self.thumb_size // 2, cell[1] + self.thumb_size // 2,
                               text="...", fill="#777", tags=("ph:" + s,))
         # flag badge
-        if photo.flag:
-            color = FLAG_COLORS[photo.flag]
-            bx, by = cell[2] - BADGE, cell[1] + BADGE
-            self.create_oval(bx - BADGE, by - BADGE, bx + BADGE, by + BADGE,
-                             fill=color, outline="#111", tags=("ov:" + s,))
-            if photo.flag == REJECT:
-                self.create_text(bx, by, text="✕", fill="white",
-                                 font=("TkDefaultFont", 9, "bold"), tags=("ov:" + s,))
+        if photo.flag == PICK:
+            self._draw_pick_star(cell[2], cell[1], "ov:" + s)
+        elif photo.flag == REJECT:
+            self._draw_reject_x(cell[2], cell[1], "ov:" + s)
         if photo.crop is not None:
             self.create_text(cell[0] + 8, cell[1] + 10, text="⌗", fill="#4a9eff",
                               font=("TkDefaultFont", 12), tags=("ov:" + s,))
@@ -135,8 +144,26 @@ class PhotoGrid(tk.Canvas):
         if selected and len(self.selection) > 1:
             self.create_rectangle(cell[0], cell[1], cell[0] + 18, cell[1] + 16,
                                   fill="#4a9eff", outline="", tags=("ov:" + s,))
-            self.create_text(cell[0] + 9, cell[1] + 8, text=str(len(self.selection)),
+            self.create_text(cell[0] + 9, cell[1] + 8, text=str(order[s]),
                              fill="white", font=("TkDefaultFont", 7), tags=("ov:" + s,))
+
+    def _draw_pick_star(self, right: int, top: int, tag: str) -> None:
+        """Yellow five-pointed star in the top-right corner of the cell."""
+        cx, cy, r = right - 10, top + 10, 9
+        points: list[float] = []
+        for i in range(10):
+            angle = -math.pi / 2 + i * math.pi / 5
+            radius = r if i % 2 == 0 else r * 0.42
+            points += [cx + radius * math.cos(angle), cy + radius * math.sin(angle)]
+        self.create_polygon(*points, fill=STAR_FILL, outline=BADGE_OUTLINE, tags=(tag,))
+
+    def _draw_reject_x(self, right: int, top: int, tag: str) -> None:
+        """Red X in the top-right corner of the cell."""
+        cx, cy, r = right - 10, top + 10, 6
+        for x0, y0, x1, y1 in ((cx - r, cy - r, cx + r, cy + r),
+                               (cx - r, cy + r, cx + r, cy - r)):
+            self.create_line(x0, y0, x1, y1, fill=FLAG_FILL, width=3,
+                             capstyle="round", tags=(tag,))
 
     # ------------------------------------------------------------- thumbnails
     def set_worker(self, worker) -> None:
@@ -246,6 +273,7 @@ class PhotoGrid(tk.Canvas):
         if hit is None:
             if not (event.state & 0x0004):  # ctrl
                 self.selection.clear()
+                self._sel_order.clear()
                 self.anchor = None
                 self._redraw()
             return
@@ -254,16 +282,22 @@ class PhotoGrid(tk.Canvas):
         if event.state & 0x0001:  # shift
             if self.anchor is not None:
                 lo, hi = sorted((self.anchor, idx))
-                self.selection = {str(p.path) for p in self.filtered[lo:hi + 1]}
+                paths = [str(p.path) for p in self.filtered[lo:hi + 1]]
+                self.selection = set(paths)
+                self._sel_order = paths
             else:
                 self.selection = {s}
+                self._sel_order = [s]
         elif event.state & 0x0004:  # ctrl
             if s in self.selection:
                 self.selection.discard(s)
             else:
                 self.selection.add(s)
+                if s not in self._sel_order:
+                    self._sel_order.append(s)
         else:
             self.selection = {s}
+            self._sel_order = [s]
         self.anchor = idx
         self._redraw()
 
@@ -275,7 +309,9 @@ class PhotoGrid(tk.Canvas):
         idx, photo = hit
         if self.anchor is not None and event.state & 0x0001:
             lo, hi = sorted((self.anchor, idx))
-            self.selection = {str(p.path) for p in self.filtered[lo:hi + 1]}
+            paths = [str(p.path) for p in self.filtered[lo:hi + 1]]
+            self.selection = set(paths)
+            self._sel_order = paths
             self._redraw()
 
     def _on_double(self, event):
@@ -290,6 +326,7 @@ class PhotoGrid(tk.Canvas):
         idx, photo = hit
         if str(photo.path) not in self.selection:
             self.selection = {str(photo.path)}
+            self._sel_order = [str(photo.path)]
             self.anchor = idx
             self._redraw()
         if self.on_open:
@@ -305,10 +342,12 @@ class PhotoGrid(tk.Canvas):
 
     def select_all(self):
         self.selection = {str(p.path) for p in self.filtered}
+        self._sel_order = [str(p.path) for p in self.filtered]
         self._redraw()
 
     def clear_selection(self):
         self.selection.clear()
+        self._sel_order.clear()
         self._redraw()
 
     def move_selection(self, delta: int):
@@ -316,7 +355,9 @@ class PhotoGrid(tk.Canvas):
             return
         cur = self.anchor if self.anchor is not None else -1
         idx = max(0, min(len(self.filtered) - 1, cur + delta))
-        self.selection = {str(self.filtered[idx].path)}
+        s = str(self.filtered[idx].path)
+        self.selection = {s}
+        self._sel_order = [s]
         self.anchor = idx
         self._redraw()
         self._scroll_to_index(idx)
