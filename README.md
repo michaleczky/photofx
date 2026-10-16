@@ -19,6 +19,10 @@ photofx/
 │   └── ops.py       # shared operations (rotation + crop remap, delete)
 ├── app/        # the grid application
 └── viewer/     # the viewer application
+    ├── viewer.py    # the window: photo list, actions, event wiring
+    ├── view.py      # image canvas: fit/zoom/pan rendering
+    ├── crop.py      # crop state: ratios, draft rect, drag geometry
+    └── bars.py      # the bottom toolbar and the crop toolbar
 ```
 
 ## Features

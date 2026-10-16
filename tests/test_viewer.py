@@ -58,15 +58,15 @@ class TestFlagToggles:
     def test_buttons_show_toggled_state(self, viewer):
         viewer.toggle_pick()
         viewer._show(keep_crop=True)
-        assert viewer.pick_btn.cget("style") == "Accent.TButton"
-        assert viewer.reject_btn.cget("style") == "TButton"
+        assert viewer.toolbar.pick_btn.cget("style") == "Accent.TButton"
+        assert viewer.toolbar.reject_btn.cget("style") == "TButton"
         viewer.toggle_pick()
         viewer._show(keep_crop=True)
-        assert viewer.pick_btn.cget("style") == "TButton"
+        assert viewer.toolbar.pick_btn.cget("style") == "TButton"
 
     def test_info_label_shows_capital_flag(self, viewer):
         viewer.set_flag("reject")
-        text = viewer.info.cget("text")
+        text = viewer.toolbar.info.cget("text")
         assert "REJECT" in text
         assert viewer.photo.name in text
 
@@ -75,12 +75,12 @@ class TestFlagToggles:
 class TestZoom:
     def test_zoom_in_out_clamped_to_fit(self, viewer):
         viewer._show()
-        viewer._zoom_by(1.25)
-        assert viewer.zoom == 1.25
-        viewer._zoom_by(1 / 1.25)
-        assert viewer.zoom == 1.0
-        viewer._zoom_by(1 / 1.25)   # cannot go below fit
-        assert viewer.zoom == 1.0
+        viewer.view.zoom_by(1.25)
+        assert viewer.view.zoom == 1.25
+        viewer.view.zoom_by(1 / 1.25)
+        assert viewer.view.zoom == 1.0
+        viewer.view.zoom_by(1 / 1.25)   # cannot go below fit
+        assert viewer.view.zoom == 1.0
 
     def test_wheel_zooms(self, viewer):
         class Ev:
@@ -89,7 +89,7 @@ class TestZoom:
             y = 10
         viewer._show()
         viewer._on_wheel(Ev())
-        assert viewer.zoom == 1.25
+        assert viewer.view.zoom == 1.25
 
     def test_wheel_zoom_out(self, viewer):
         class Ev:
@@ -97,27 +97,27 @@ class TestZoom:
             x = 10
             y = 10
         viewer._show()
-        viewer._zoom_by(1.25)
+        viewer.view.zoom_by(1.25)
         viewer._on_wheel(Ev())
-        assert viewer.zoom == 1.0
+        assert viewer.view.zoom == 1.0
 
     def test_pan_moves_and_clamps(self, viewer):
         viewer._show()
-        viewer._zoom_by(1.25)               # image now larger than the window
+        viewer.view.zoom_by(1.25)               # image now larger than the window
         viewer._show(keep_crop=True)
-        old = viewer.img_box
-        viewer._pan_by(-5, -5)
-        assert viewer.img_box[0] == old[0] - 5      # within bounds: exact shift
+        old = viewer.view.img_box
+        viewer.view.pan_by(-5, -5)
+        assert viewer.view.img_box[0] == old[0] - 5      # within bounds: exact shift
         dw = old[2] - old[0]
-        viewer._pan_by(-10 ** 6, -10 ** 6)          # way out: clamped
-        assert viewer.img_box[0] == viewer.canvas.winfo_width() - dw
+        viewer.view.pan_by(-10 ** 6, -10 ** 6)          # way out: clamped
+        assert viewer.view.img_box[0] == viewer.view.canvas.winfo_width() - dw
 
     def test_zoom_resets_on_navigate(self, viewer):
         viewer._show()
-        viewer._zoom_by(1.25)
+        viewer.view.zoom_by(1.25)
         viewer.navigate(1)
-        assert viewer.zoom == 1.0
-        assert (viewer.pan_x, viewer.pan_y) == (0, 0)
+        assert viewer.view.zoom == 1.0
+        assert (viewer.view.pan_x, viewer.view.pan_y) == (0, 0)
 
 
 @requires_display
@@ -131,16 +131,16 @@ class TestShowOriginal:
 
         viewer.toggle_original()
         assert viewer.show_original is True
-        assert viewer.original_btn.cget("style") == "Accent.TButton"
+        assert viewer.toolbar.original_btn.cget("style") == "Accent.TButton"
         viewer._show(keep_crop=True)
-        bw, bh = viewer.base.size
-        ox, oy, ox2, oy2 = viewer.img_box
+        bw, bh = viewer.view.base.size
+        ox, oy, ox2, oy2 = viewer.view.img_box
         assert abs((ox2 - ox) / (oy2 - oy) - bw / bh) < 0.01
 
         viewer.toggle_original()
         assert viewer.show_original is False
         viewer._show(keep_crop=True)
-        ox, oy, ox2, oy2 = viewer.img_box
+        ox, oy, ox2, oy2 = viewer.view.img_box
         cw = photo.crop[2] - photo.crop[0]
         chh = photo.crop[3] - photo.crop[1]
         assert abs((ox2 - ox) / (oy2 - oy) - (bw * cw) / (bh * chh)) < 0.05
@@ -195,27 +195,27 @@ class TestViewerCrop:
 class TestCropToolbar:
     def _pixel_ratio(self, viewer):
         x0, y0, x1, y1 = viewer.draft
-        bw, bh = viewer.base.size
+        bw, bh = viewer.view.base.size
         return (x1 - x0) * bw / ((y1 - y0) * bh)
 
     def test_bar_shown_only_in_crop_mode(self, viewer):
         viewer.update()
-        assert not viewer.crop_bar.winfo_ismapped()
+        assert not viewer.crop_toolbar.frame.winfo_ismapped()
         viewer.toggle_crop()
         viewer.update()
-        assert viewer.crop_bar.winfo_ismapped()
+        assert viewer.crop_toolbar.frame.winfo_ismapped()
         viewer._exit_crop()
         viewer.update()
-        assert not viewer.crop_bar.winfo_ismapped()
+        assert not viewer.crop_toolbar.frame.winfo_ismapped()
 
     def test_bar_sits_above_main_toolbar(self, viewer):
         viewer.toggle_crop()
         viewer.update()
-        assert viewer.crop_bar.winfo_rooty() < viewer.toolbar.winfo_rooty()
+        assert viewer.crop_toolbar.frame.winfo_rooty() < viewer.toolbar.frame.winfo_rooty()
 
     def test_apply_and_clear_live_in_crop_bar(self, viewer):
         viewer.toggle_crop()
-        labels = [str(w.cget("text")) for w in viewer.crop_bar.winfo_children()
+        labels = [str(w.cget("text")) for w in viewer.crop_toolbar.frame.winfo_children()
                   if w.winfo_class() == "TButton"]
         assert "Apply crop" in labels
         assert "Clear crop" in labels
@@ -224,23 +224,23 @@ class TestCropToolbar:
         viewer._show()
         viewer.toggle_crop()
         viewer.set_ratio("4:3")
-        assert viewer.ratio_label == "4:3"
+        assert viewer.crop.ratio.label == "4:3"
         assert abs(self._pixel_ratio(viewer) - 4 / 3) < 0.01
-        assert viewer.ratio_btns["4:3"].cget("style") == "Accent.TButton"
+        assert viewer.crop_toolbar.ratio_buttons["4:3"].cget("style") == "Accent.TButton"
 
     def test_ratio_toggle_returns_to_free_crop(self, viewer):
         viewer._show()
         viewer.toggle_crop()
         viewer.set_ratio("16:9")
         viewer.set_ratio("16:9")
-        assert viewer.ratio_label is None
-        assert viewer.ratio_btns["16:9"].cget("style") == "TButton"
+        assert viewer.crop.ratio.label is None
+        assert viewer.crop_toolbar.ratio_buttons["16:9"].cget("style") == "TButton"
 
     def test_original_ratio_matches_image_aspect(self, viewer):
         viewer._show()
         viewer.toggle_crop()
         viewer.set_ratio("original")
-        bw, bh = viewer.base.size
+        bw, bh = viewer.view.base.size
         assert abs(self._pixel_ratio(viewer) - bw / bh) < 0.01
 
     def test_orientation_swap_flips_ratio(self, viewer):
@@ -248,42 +248,37 @@ class TestCropToolbar:
         viewer.toggle_crop()
         viewer.set_ratio("4:3")
         viewer.swap_orientation()
-        assert viewer.ratio_transposed is True
+        assert viewer.crop.ratio.transposed is True
         assert abs(self._pixel_ratio(viewer) - 3 / 4) < 0.01
-        assert viewer.orientation_btn.cget("style") == "Accent.TButton"
-        assert "3:4" in viewer.info.cget("text")
+        assert viewer.crop_toolbar.orientation_btn.cget("style") == "Accent.TButton"
+        assert "3:4" in viewer.toolbar.info.cget("text")
 
     def test_swap_without_ratio_adopts_original(self, viewer):
         viewer._show()
         viewer.toggle_crop()
         viewer.swap_orientation()
-        assert viewer.ratio_label == "original"
-        bw, bh = viewer.base.size
+        assert viewer.crop.ratio.label == "original"
+        bw, bh = viewer.view.base.size
         assert abs(self._pixel_ratio(viewer) - bh / bw) < 0.01
 
     def test_edge_drag_keeps_ratio(self, viewer):
         viewer._show()
         viewer.toggle_crop()
         viewer.set_ratio("1:1")
-        viewer._show(keep_crop=True)
-        ox, oy, ox2, oy2 = viewer.img_box
+        ox, oy, ox2, oy2 = viewer.view.img_box
         dw, dh = ox2 - ox, oy2 - oy
-
-        class Ev:
-            x = ox + 0.9 * dw
-            y = oy + 0.6 * dh
-        viewer._drag = ("e", 0.5, 0.5)
-        viewer._crop_motion(Ev())
+        viewer.crop.start_drag("e", 0.5, 0.5)
+        viewer.crop.motion(0.9, 0.6, viewer.view.size)      # rel coords
         x0, y0, x1, y1 = viewer.draft
-        bw, bh = viewer.base.size
+        bw, bh = viewer.view.base.size
         assert abs((x1 - x0) * bw - (y1 - y0) * bh) < 2      # square in pixels
 
     def test_new_rect_keeps_ratio(self, viewer):
         viewer._show()
         viewer.toggle_crop()
         viewer.set_ratio("16:9")
-        rect = viewer._new_rect(0.2, 0.2, 0.8, 0.8)
-        bw, bh = viewer.base.size
+        rect = viewer.crop.new_rect(0.2, 0.2, 0.8, 0.8, viewer.view.size)
+        bw, bh = viewer.view.base.size
         w = (rect[2] - rect[0]) * bw
         h = (rect[3] - rect[1]) * bh
         assert abs(w / h - 16 / 9) < 0.01
@@ -349,7 +344,7 @@ class TestViewerRemoveCurrent:
         viewer.on_delete = on_delete  # same wiring photofx.viewer uses
         viewer.navigate(2)
         victim = viewer.photo
-        viewer._delete_current()
+        viewer.delete_current()
         assert not victim.path.exists()
         assert (photo_dir / ".photofx_trash" / victim.name).exists()
         assert victim not in viewer.photos

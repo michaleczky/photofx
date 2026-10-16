@@ -439,7 +439,7 @@ class TestEmbeddedViewer:
         app.open_viewer(photo)
         viewer = app.viewer
         viewer.update_idletasks()
-        viewer._delete_current()
+        viewer.delete_current()
         assert not photo.path.exists()
         assert (photo_dir / ".photofx_trash" / photo.name).exists()
         assert photo not in app.grid.photos
