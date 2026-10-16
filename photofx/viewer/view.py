@@ -14,6 +14,7 @@ import tkinter as tk
 from PIL import Image, ImageTk
 
 from photofx.lib.catalog import Photo
+from photofx.lib.edits import apply_edits
 from photofx.lib.render import open_rotated
 
 MARGIN = 30          # px around the image in the viewer
@@ -35,6 +36,7 @@ class ImageView:
         self.canvas.pack(fill="both", expand=True)
         self.base: Image.Image | None = None
         self.base_key: tuple[str, int] | None = None
+        self.edits: dict[str, float] = {}    # sliders shown right now
         self.disp: ImageTk.PhotoImage | None = None
         self.img_box = (0, 0, 0, 0)
         self.zoom = 1.0            # multiplier on the fit-to-window scale
@@ -53,9 +55,15 @@ class ImageView:
                 and self.base_key == (str(photo.path), photo.rotation))
 
     def load(self, photo: Photo):
-        """(Re)render the photo: rotated, uncropped, full resolution."""
+        """(Re)render the photo: rotated, uncropped, full resolution.
+
+        The base stays unedited; edits are applied at display size in
+        :meth:`draw`, so moving a slider never re-decodes the file and
+        the edit math runs on a small image.
+        """
         self.base = open_rotated(photo)
         self.base_key = (str(photo.path), photo.rotation)
+        self.edits = dict(photo.edits)
 
     def invalidate(self):
         """Drop the cached render so the next draw reloads the photo."""
@@ -106,7 +114,9 @@ class ImageView:
             oy = (ch - dh) // 2
         self.img_box = (ox, oy, ox + dw, oy + dh)
 
-        self.disp = ImageTk.PhotoImage(disp_img.resize((dw, dh), Image.LANCZOS))
+        disp_img = disp_img.resize((dw, dh), Image.LANCZOS)
+        disp_img = apply_edits(disp_img, self.edits)
+        self.disp = ImageTk.PhotoImage(disp_img)
         self.canvas.create_image(ox, oy, image=self.disp, anchor="nw")
 
     # ----------------------------------------------------------------- zoom

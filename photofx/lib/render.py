@@ -16,6 +16,7 @@ from pathlib import Path
 from PIL import Image, ImageOps
 
 from .catalog import Photo
+from .edits import apply_edits
 
 Image.MAX_IMAGE_PIXELS = None  # trust local files
 
@@ -35,7 +36,12 @@ def open_rotated(photo: Photo) -> Image.Image:
 
 
 def render(photo: Photo, max_size: int | None = None) -> Image.Image:
-    """Full pipeline: EXIF -> rotation -> crop, optionally downscaled to fit."""
+    """Full pipeline: EXIF -> rotation -> crop -> edits, optionally downscaled.
+
+    Edits are applied after downscaling: they are global (scale-
+    independent) operations, so this is visually identical and much
+    cheaper on large images.
+    """
     img = open_rotated(photo)
     if photo.crop is not None:
         x0, y0, x1, y1 = photo.crop
@@ -43,6 +49,8 @@ def render(photo: Photo, max_size: int | None = None) -> Image.Image:
         img = img.crop((int(x0 * w), int(y0 * h), int(x1 * w), int(y1 * h)))
     if max_size and max(img.size) > max_size:
         img.thumbnail((max_size, max_size), Image.LANCZOS)
+    if photo.edits:
+        img = apply_edits(img, photo.edits)
     return img
 
 
@@ -70,7 +78,8 @@ class ThumbCache:
             mtime = photo.path.stat().st_mtime_ns
         except OSError:
             mtime = 0
-        return (str(photo.path), mtime, photo.rotation, photo.crop, size)
+        return (str(photo.path), mtime, photo.rotation, photo.crop,
+                photo.edits_key, size)
 
     def get(self, photo: Photo, size: int) -> Image.Image | None:
         with self._lock:
@@ -95,8 +104,8 @@ class ThumbCache:
 class DiskThumbCache:
     """Persistent thumbnails under <folder>/.photofx_cache/thumbs.
 
-    File names encode the source path plus mtime/rotation/crop/size, so a
-    cached thumb is reused only while the photo and its metadata are
+    File names encode the source path plus mtime/rotation/crop/edits/size,
+    so a cached thumb is reused only while the photo and its metadata are
     unchanged. JPEG keeps the files small and fast to reload.
     """
 
@@ -141,7 +150,7 @@ class DiskThumbCache:
             mtime = photo.path.stat().st_mtime_ns
         except OSError:
             return None
-        meta = f"{mtime}|{photo.rotation}|{photo.crop}|{size}"
+        meta = f"{mtime}|{photo.rotation}|{photo.crop}|{photo.edits_key}|{size}"
         meta_key = hashlib.sha1(meta.encode("utf-8")).hexdigest()[:16]
         return self.dir / f"{self._path_key(photo.path)}_{meta_key}.jpg"
 

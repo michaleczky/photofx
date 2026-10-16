@@ -1,9 +1,9 @@
 """Toolbars of the viewer window.
 
 :class:`Toolbar` is the always-visible bottom bar; :class:`CropToolbar`
-holds the crop tools and is packed just above it while crop mode is on.
-Each bar builds its own buttons and keeps them in sync with the state its
-owner passes in.
+holds the crop tools and is packed just above the main toolbar while
+crop mode is on. Each bar builds its own widgets and keeps them in sync
+with the state its owner passes in.
 """
 
 from __future__ import annotations
@@ -34,6 +34,8 @@ class Toolbar:
             hint="Rotate 90 right  ]")
         self.crop_btn = btn("Crop", viewer.toggle_crop, icon="crop",
                             hint="Crop overlay")
+        self.enhance_btn = btn("Enhance", viewer.toggle_enhance,
+                               hint="Enhance pane  e")
         self._separator()
         btn("Zoom in", viewer.zoom_in, icon="zoom-in", hint="Zoom in  + / wheel up")
         btn("Zoom out", viewer.zoom_out, icon="zoom-out",
@@ -56,13 +58,15 @@ class Toolbar:
     def set_info(self, text: str):
         self.info.configure(text=text)
 
-    def sync(self, photo: Photo | None, show_original: bool, crop_active: bool):
+    def sync(self, photo: Photo | None, show_original: bool, crop_active: bool,
+             enhance_visible: bool = False):
         """Show the pressed/unpressed state of the toggle buttons."""
         flag = photo.flag if photo is not None else None
         ui.set_toggled(self.pick_btn, flag == PICK)
         ui.set_toggled(self.reject_btn, flag == REJECT)
         ui.set_toggled(self.original_btn, show_original)
         ui.set_toggled(self.crop_btn, crop_active)
+        ui.set_toggled(self.enhance_btn, enhance_visible)
 
 
 class CropToolbar:

@@ -351,6 +351,130 @@ class TestViewerRemoveCurrent:
 
 
 @requires_display
+class TestEnhancePane:
+    def test_toggle_shows_and_hides_pane(self, viewer):
+        viewer.toggle_enhance()
+        assert viewer.enhance_visible
+        assert viewer.enhance_pane.frame.winfo_manager() == "pack"
+        viewer.toggle_enhance()
+        assert not viewer.enhance_visible
+        assert viewer.enhance_pane.frame.winfo_manager() == ""
+
+    def test_all_sliders_are_in_the_pane(self, viewer):
+        from photofx.lib.catalog import EDIT_KEYS
+        assert set(viewer.enhance_pane.scales) == set(EDIT_KEYS)
+
+    def test_pane_sliders_start_at_zero(self, viewer):
+        viewer.toggle_enhance()
+        for scale in viewer.enhance_pane.scales.values():
+            assert float(scale.get()) == 0.0
+
+    def test_slider_drag_previews_and_release_persists(self, viewer, photo_dir):
+        viewer.toggle_enhance()
+        name = viewer.photo.name
+        viewer.enhance_pane.scales["exposure"].set(0.5)   # fires live_enhance
+        assert viewer._live_edits is not None
+        viewer._show(keep_crop=True)                      # what the debounce runs
+        assert abs(viewer.view.edits["exposure"] - 0.5) < 1e-9
+        assert viewer.photo.edits == {}                   # not stored while dragging
+        viewer.commit_enhance()                           # what release runs
+        assert abs(viewer.photo.edits["exposure"] - 0.5) < 1e-9
+        assert load_photo(photo_dir / name).edits["exposure"] == 0.5
+
+    def test_zero_slider_position_is_not_stored(self, viewer):
+        viewer.toggle_enhance()
+        viewer.enhance_pane.scales["contrast"].set(25)
+        viewer.commit_enhance()
+        assert viewer.photo.edits == {"contrast": 25.0}
+        viewer.enhance_pane.scales["contrast"].set(0)
+        viewer.commit_enhance()
+        assert viewer.photo.edits == {}
+
+    def test_auto_sets_edits_from_the_image(self, viewer, photo_dir):
+        name = viewer.photo.name
+        viewer.toggle_enhance()
+        viewer.auto_enhance()
+        assert viewer.photo.edits            # something was suggested
+        assert viewer._live_edits is None    # no dangling drag state
+        stored = load_photo(photo_dir / name).edits
+        assert stored == viewer.photo.edits
+        # the pane sliders follow the suggestion
+        for key, scale in viewer.enhance_pane.scales.items():
+            assert abs(float(scale.get()) - stored.get(key, 0.0)) < 1e-9
+
+    def test_reset_clears_edits(self, viewer, photo_dir):
+        name = viewer.photo.name
+        viewer.toggle_enhance()
+        viewer.enhance_pane.scales["saturation"].set(40)
+        viewer.commit_enhance()
+        assert viewer.photo.edits
+        viewer.reset_enhance()
+        assert viewer.photo.edits == {}
+        assert load_photo(photo_dir / name).edits == {}
+
+    def test_show_original_ignores_edits(self, viewer):
+        viewer.toggle_enhance()
+        viewer.enhance_pane.scales["temp"].set(30)
+        viewer.commit_enhance()
+        viewer.toggle_original()
+        viewer._show(keep_crop=True)
+        assert viewer.view.edits == {}
+        viewer.toggle_original()
+        viewer._show(keep_crop=True)
+        assert viewer.view.edits == {"temp": 30.0}
+
+    def test_info_line_marks_edited_photos(self, viewer):
+        viewer.toggle_enhance()
+        viewer.enhance_pane.scales["contrast"].set(10)
+        viewer.commit_enhance()
+        assert "[edited]" in viewer.toolbar.info.cget("text")
+
+    def test_navigating_resyncs_sliders(self, viewer):
+        viewer.toggle_enhance()
+        viewer.enhance_pane.scales["tint"].set(-15)
+        viewer.commit_enhance()
+        viewer.navigate(1)                     # photo without edits
+        assert viewer.photo.edits == {}
+        for scale in viewer.enhance_pane.scales.values():
+            assert float(scale.get()) == 0.0
+        viewer.navigate(-1)                    # back to the edited one
+        assert abs(float(viewer.enhance_pane.scales["tint"].get()) + 15) < 1e-9
+
+    def test_pane_does_not_commit_while_closed(self, viewer):
+        viewer.toggle_enhance()
+        viewer.enhance_pane.scales["exposure"].set(1.0)
+        viewer.commit_enhance()
+        viewer.toggle_enhance()                 # close
+        assert viewer.photo.edits              # the earlier edit persists
+        assert viewer._live_edits is None
+
+    def test_pane_visibility_is_remembered(self, photo_dir):
+        import tkinter as tk
+        from photofx.lib import settings
+        from photofx.viewer.viewer import Viewer
+
+        root = tk.Tk()
+        root.withdraw()
+        photos = scan_folder(photo_dir)
+        assert settings.get_value("enhance_pane", False) is False
+        first = Viewer(root, list(photos), 0)
+        assert not first.enhance_visible        # hidden on first launch
+        first.toggle_enhance()                  # leave it open
+        first.destroy()
+
+        second = Viewer(root, list(photos), 0)  # a fresh viewer remembers
+        assert second.enhance_visible
+        assert second.enhance_pane.frame.winfo_manager() == "pack"
+        second.toggle_enhance()                 # leave it closed
+        second.destroy()
+
+        third = Viewer(root, list(photos), 0)
+        assert not third.enhance_visible
+        third.destroy()
+        root.destroy()
+
+
+@requires_display
 class TestStandaloneEntry:
     """python -m photofx.viewer — argument validation and launch smoke."""
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp"}
@@ -13,6 +13,10 @@ TRASH_DIRNAME = ".photofx_trash"
 PICK = "pick"
 REJECT = "reject"
 
+# Non-destructive edit sliders, all defaulting to 0.0 (= untouched).
+# exposure is in EV, the rest run from -100 to +100.
+EDIT_KEYS = ("exposure", "contrast", "temp", "tint", "saturation")
+
 
 @dataclass
 class Photo:
@@ -20,6 +24,7 @@ class Photo:
     flag: str | None = None          # "pick" | "reject" | None
     rotation: int = 0                # 0, 90, 180, 270 (clockwise, on top of EXIF)
     crop: tuple[float, float, float, float] | None = None  # x0, y0, x1, y1 in 0..1, rotated space
+    edits: dict[str, float] = field(default_factory=dict)   # nonzero values of EDIT_KEYS
 
     @property
     def name(self) -> str:
@@ -28,6 +33,11 @@ class Photo:
     @property
     def sidecar(self) -> Path:
         return self.path.with_name(self.path.name + ".json")
+
+    @property
+    def edits_key(self) -> tuple[float, ...]:
+        """Edits as a fixed-order tuple, usable in cache keys."""
+        return tuple(self.edits.get(k, 0.0) for k in EDIT_KEYS)
 
 
 def load_photo(path: Path) -> Photo:
@@ -47,6 +57,13 @@ def load_photo(path: Path) -> Photo:
             x0, y0, x1, y1 = crop
             if all(isinstance(v, (int, float)) for v in (x0, y0, x1, y1)):
                 photo.crop = (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+        edits = data.get("edits")
+        if isinstance(edits, dict):
+            for key in EDIT_KEYS:
+                value = edits.get(key)
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    if value != 0.0:
+                        photo.edits[key] = float(value)
     return photo
 
 
@@ -54,6 +71,9 @@ def save_photo(photo: Photo) -> None:
     data: dict = {"flag": photo.flag, "rotation": photo.rotation}
     if photo.crop is not None:
         data["crop"] = [round(v, 6) for v in photo.crop]
+    if photo.edits:
+        data["edits"] = {k: round(v, 6) for k, v in sorted(photo.edits.items())
+                         if v != 0.0}
     photo.sidecar.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 

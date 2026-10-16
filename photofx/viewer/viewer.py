@@ -6,6 +6,8 @@ collaborators together:
 - :class:`~photofx.viewer.view.ImageView` — canvas, rendering, zoom and pan
 - :class:`~photofx.viewer.crop.CropSession` — crop overlay state and geometry
 - :class:`~photofx.viewer.bars.Toolbar` / :class:`~photofx.viewer.bars.CropToolbar`
+- :class:`~photofx.viewer.enhance.EnhancePane` — the enhance sliders on the
+  right edge; its visibility is remembered between sessions
 
 Everything user-visible (actions, keyboard bindings, the info line,
 redraw scheduling) is coordinated here; the collaborators never talk to
@@ -17,10 +19,12 @@ from __future__ import annotations
 import tkinter as tk
 
 from photofx.lib.catalog import PICK, REJECT, Photo
-from photofx.lib import ui
+from photofx.lib import settings, ui
+from photofx.lib.edits import auto_edits
 from photofx.lib.ops import apply_rotation
 from photofx.viewer.bars import CropToolbar, Toolbar
 from photofx.viewer.crop import CropSession
+from photofx.viewer.enhance import EnhancePane
 from photofx.viewer.view import DARK, ImageView, ZOOM_STEP
 
 REDRAW_DELAY = 30     # ms debounce: bursts of Configure events coalesce into one
@@ -40,6 +44,8 @@ class Viewer(tk.Toplevel):
         self.view = ImageView(self)
         self.crop = CropSession()
         self.show_original = False
+        self.enhance_visible = settings.get_value("enhance_pane", False)
+        self._live_edits: dict[str, float] | None = None  # during a slider drag
         self._pan: tuple[int, int] | None = None   # last pan press position
         self._show_job = None          # pending debounced redraw
         self._last_size = None         # canvas size the image was last rendered for
@@ -50,6 +56,10 @@ class Viewer(tk.Toplevel):
         ui.dark_style(self)
         self.toolbar = Toolbar(self)
         self.crop_toolbar = CropToolbar(self, self.toolbar)
+        self.enhance_pane = EnhancePane(self)
+        if self.enhance_visible:
+            self.enhance_pane.sync(self.photo)
+            self.enhance_pane.set_visible(True)
 
         self._bind_events()
         self.focus_force()
@@ -90,6 +100,7 @@ class Viewer(tk.Toplevel):
         self.bind("p", lambda e: self.set_flag(PICK))
         self.bind("x", lambda e: self.set_flag(REJECT))
         self.bind("u", lambda e: self.set_flag(None))
+        self.bind("e", lambda e: self.toggle_enhance())
         self.bind("bracketleft", lambda e: self.rotate(-90))
         self.bind("bracketright", lambda e: self.rotate(90))
         self.bind("<plus>", self.zoom_in)
@@ -164,6 +175,12 @@ class Viewer(tk.Toplevel):
         if not keep_crop or not self.view.matches(photo):
             self.view.load(photo)
             self.crop.seed(photo)
+        if self.show_original:
+            self.view.edits = {}
+        elif self._live_edits is not None:
+            self.view.edits = dict(self._live_edits)
+        else:
+            self.view.edits = dict(photo.edits)
         sub_rect = None
         if photo.crop is not None and not self.crop.active and not self.show_original:
             sub_rect = photo.crop
@@ -179,19 +196,20 @@ class Viewer(tk.Toplevel):
         flags = {"pick": "  PICK", "reject": "  REJECT"}.get(photo.flag, "")
         if self.crop.active:
             crop_note = self.crop.ratio.note()
-        elif self.show_original and photo.crop:
+        elif self.show_original and (photo.crop or photo.edits):
             crop_note = "  [original]"
-        elif photo.crop:
-            crop_note = "  [cropped]"
         else:
-            crop_note = ""
+            crop_note = "  [cropped]" if photo.crop else ""
+            if photo.edits and not self.show_original:
+                crop_note += "  [edited]"
         zoom_note = f"  {round(self.view.zoom * 100)}%" if self.view.zoom > 1.005 else ""
         self.toolbar.set_info(
             f"{self.index + 1}/{len(self.photos)}  {photo.name}"
             f"{flags}{crop_note}{zoom_note}")
 
     def _sync_buttons(self):
-        self.toolbar.sync(self.photo, self.show_original, self.crop.active)
+        self.toolbar.sync(self.photo, self.show_original, self.crop.active,
+                          self.enhance_visible)
         self.crop_toolbar.sync(self.crop.active, self.crop.ratio)
 
     # ----------------------------------------------------------------- zoom
@@ -266,6 +284,58 @@ class Viewer(tk.Toplevel):
         self._changed()
         self._show(keep_crop=True)
 
+    # ------------------------------------------------------------- editing
+    def toggle_enhance(self):
+        """Show or hide the enhance pane; remembered between sessions."""
+        self.enhance_visible = not self.enhance_visible
+        if self.enhance_visible:
+            self._live_edits = None
+            self.enhance_pane.sync(self.photo)
+        self.enhance_pane.set_visible(self.enhance_visible)
+        settings.save_value("enhance_pane", self.enhance_visible)
+        self._show(keep_crop=True)
+
+    def live_enhance(self, key: str, value: float):
+        """Slider moved: preview all current slider positions without saving."""
+        if self.photo is None:
+            return
+        self._live_edits = self.enhance_pane.values()
+        self._schedule_show()
+
+    def commit_enhance(self):
+        """Slider released: store the previewed edits in the sidecar."""
+        photo = self.photo
+        if photo is None or self._live_edits is None:
+            return
+        photo.edits = dict(self._live_edits)
+        self._live_edits = None
+        self._changed()
+        self._show(keep_crop=True)
+
+    def auto_enhance(self):
+        """Auto: white balance, exposure and contrast from the image itself."""
+        photo = self.photo
+        if photo is None:
+            return
+        if self.view.base is None or not self.view.matches(photo):
+            self.view.load(photo)
+        self._live_edits = None
+        photo.edits = auto_edits(self.view.base)
+        self.enhance_pane.sync(photo)
+        self._changed()
+        self._show(keep_crop=True)
+
+    def reset_enhance(self):
+        """Reset all enhancements back to the untouched state."""
+        photo = self.photo
+        if photo is None:
+            return
+        self._live_edits = None
+        photo.edits = {}
+        self.enhance_pane.sync(photo)
+        self._changed()
+        self._show(keep_crop=True)
+
     # ------------------------------------------------------------- actions
     def rotate(self, degrees: int):
         photo = self.photo
@@ -334,6 +404,9 @@ class Viewer(tk.Toplevel):
         """New photo on screen: reset crop, view state and redraw."""
         self.crop.draft = None
         self._end_crop()
+        self._live_edits = None
+        if self.enhance_visible:
+            self.enhance_pane.sync(self.photo)
         self.view.invalidate()
         self.view.zoom_reset()
         self._show()

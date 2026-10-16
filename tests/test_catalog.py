@@ -68,6 +68,68 @@ class TestSidecar:
         assert photo.flag is None
         assert photo.rotation == 0
         assert photo.crop is None
+        assert photo.edits == {}
+
+    def test_edits_roundtrip(self, photo_dir):
+        path = photo_dir / "IMG_0001.jpg"
+        photo = load_photo(path)
+        photo.edits = {"exposure": 0.75, "contrast": -20, "temp": 15,
+                       "tint": -5, "saturation": 40}
+        save_photo(photo)
+        reloaded = load_photo(path)
+        assert reloaded.edits == {"exposure": 0.75, "contrast": -20.0,
+                                   "temp": 15.0, "tint": -5.0,
+                                   "saturation": 40.0}
+        assert reloaded.edits_key == (0.75, -20.0, 15.0, -5.0, 40.0)
+
+    def test_edits_coexist_with_crop_and_rotation(self, photo_dir):
+        path = photo_dir / "beach.png"
+        photo = load_photo(path)
+        photo.rotation = 90
+        photo.crop = (0.1, 0.1, 0.9, 0.9)
+        photo.edits = {"exposure": -1.0}
+        save_photo(photo)
+        reloaded = load_photo(path)
+        assert reloaded.rotation == 90
+        assert reloaded.crop == (0.1, 0.1, 0.9, 0.9)
+        assert reloaded.edits == {"exposure": -1.0}
+
+    def test_empty_edits_not_written_to_sidecar(self, photo_dir):
+        path = photo_dir / "beach.png"
+        photo = load_photo(path)
+        photo.edits = {}
+        save_photo(photo)
+        data = json.loads((photo_dir / "beach.png.json").read_text())
+        assert "edits" not in data
+
+    def test_zero_edit_values_dropped(self, photo_dir):
+        path = photo_dir / "beach.png"
+        photo = load_photo(path)
+        photo.edits = {"exposure": 0.0, "temp": 30}
+        save_photo(photo)
+        data = json.loads((photo_dir / "beach.png.json").read_text())
+        assert data["edits"] == {"temp": 30}
+
+    def test_tolerates_bad_edits(self, photo_dir):
+        path = photo_dir / "beach.png"
+        (path.with_name("beach.png.json")).write_text(json.dumps({
+            "edits": {
+                "exposure": 1.5,
+                "contrast": "high",       # not a number -> ignored
+                "bogus": 42,              # unknown slider -> ignored
+                "temp": True,             # bool is not a value -> ignored
+            },
+        }))
+        photo = load_photo(path)
+        assert photo.edits == {"exposure": 1.5}
+
+    def test_edits_key_order_follows_edit_keys(self, photo_dir):
+        from photofx.lib.catalog import EDIT_KEYS
+        photo = load_photo(photo_dir / "beach.png")
+        photo.edits = {"saturation": 10, "exposure": -0.5}
+        assert len(photo.edits_key) == len(EDIT_KEYS)
+        assert photo.edits_key[EDIT_KEYS.index("exposure")] == -0.5
+        assert photo.edits_key[EDIT_KEYS.index("saturation")] == 10
 
     def test_roundtrip(self, photo_dir):
         path = photo_dir / "IMG_0001.jpg"

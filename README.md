@@ -14,7 +14,8 @@ library:
 photofx/
 ├── lib/        # shared code used by both applications
 │   ├── catalog.py   # sidecar JSON metadata, folder scan, trash
-│   ├── render.py    # EXIF/rotate/crop pipeline, thumbnail caches, worker
+│   ├── render.py    # EXIF/rotate/crop/edit pipeline, thumbnail caches, worker
+│   ├── edits.py     # edit sliders: exposure, contrast, WB, saturation, Auto
 │   ├── icons.py     # toolbar icons
 │   └── ops.py       # shared operations (rotation + crop remap, delete)
 ├── app/        # the grid application
@@ -29,6 +30,7 @@ photofx/
     ├── viewer.py    # the window: photo list, actions, event wiring
     ├── view.py      # image canvas: fit/zoom/pan rendering
     ├── crop.py      # crop state: ratios, draft rect, drag geometry
+    ├── enhance.py   # the enhance pane: sectioned sliders, Auto, Reset
     └── bars.py      # the bottom toolbar and the crop toolbar
 ```
 
@@ -42,12 +44,18 @@ photofx/
   to move it, drag edges/corners to resize. Rule-of-thirds guides included.
   In crop mode a second toolbar appears above the main one with crop ratios
   (original, 4:3, 16:9, 1:1), an orientation swap, and apply/clear.
+- **Enhance** (viewer, `e`): a pane on the right edge with exposure,
+  contrast, white balance (temp/tint) and saturation sliders with live
+  preview, grouped into Light and Color sections, plus Auto (white
+  balance, exposure and contrast suggested from the image itself) and a
+  Reset button that clears all enhancements. The pane's visibility is
+  remembered between sessions. Edits apply to thumbnails too.
 - **Flag**: pick (★) / reject (✕) / clear.
 - **Filter**: picks / rejected / without rejects / unflagged.
 - **Delete**: moves photos (and their sidecars) into a `.photofx_trash` folder
   inside the scanned folder. Nothing is destroyed; restore by moving files back.
-- **Non-destructive**: originals are *never* modified. Rotation, crop and
-  flags live in a JSON sidecar next to each image (`IMG_0001.jpg.json`).
+- **Non-destructive**: originals are *never* modified. Rotation, crop, edits
+  and flags live in a JSON sidecar next to each image (`IMG_0001.jpg.json`).
 - **Hidden & excluded files**: files whose name starts with `.` are never
   shown. Add your own exclusion regexes to the `exclude` list in the settings
   file (`~/.config/photofx/settings.json`) and photos matching them are hidden
@@ -55,7 +63,8 @@ photofx/
 - **Fast thumbnails**: rendered in parallel on background threads and cached
   on disk in `.photofx_cache/thumbs` inside the photo folder. Folders you
   have opened once display their thumbnails almost instantly at startup;
-  cache entries are keyed by mtime/rotation/crop, so edits always re-render.
+  cache entries are keyed by mtime/rotation/crop/edits, so edits always
+  re-render.
 
 ## Install / run
 

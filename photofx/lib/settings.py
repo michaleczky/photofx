@@ -70,9 +70,20 @@ def _read() -> dict:
 
 def save_folder(folder: Path) -> None:
     """Update the last folder, keeping any other settings (e.g. exclude)."""
+    save_value("folder", str(folder))
+
+
+def get_value(key: str, default=None):
+    """One setting's value (JSON-decoded), or ``default`` when unset."""
+    value = _read().get(key)
+    return default if value is None else value
+
+
+def save_value(key: str, value) -> None:
+    """Update one setting, keeping the others in the file intact."""
     try:
         data = _read()
-        data["folder"] = str(folder)
+        data[key] = value
         config_dir().mkdir(parents=True, exist_ok=True)
         _config_file().write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     except OSError:

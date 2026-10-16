@@ -95,3 +95,35 @@ def test_saving_folder_keeps_exclude_list(tmp_path):
     settings.save_folder(folder)
     assert [p.pattern for p in settings.exclude_patterns()] == ["^screenshot"]
     assert settings.saved_folder() == folder
+
+
+def test_get_value_returns_default_when_unset():
+    assert settings.get_value("anything") is None
+    assert settings.get_value("anything", False) is False
+
+
+def test_save_value_roundtrip():
+    settings.save_value("enhance_pane", True)
+    assert settings.get_value("enhance_pane", False) is True
+    settings.save_value("enhance_pane", False)
+    assert settings.get_value("enhance_pane", True) is False
+
+
+def test_save_value_keeps_other_settings():
+    folder = settings.config_dir()
+    settings.save_value("enhance_pane", True)
+    settings.save_value("folder", str(folder))     # e.g. the app saving both
+    assert settings.get_value("enhance_pane") is True
+    assert settings.get_value("folder") == str(folder)
+
+
+def test_save_value_tolerates_missing_config_dir(tmp_path):
+    settings.save_value("enhance_pane", True)      # config dir may not exist yet
+    assert settings.get_value("enhance_pane") is True
+
+
+def test_save_value_survives_corrupt_file():
+    settings.config_dir().mkdir(parents=True, exist_ok=True)
+    (settings.config_dir() / "settings.json").write_text("{not json", encoding="utf-8")
+    settings.save_value("enhance_pane", True)      # overwrites the garbage
+    assert settings.get_value("enhance_pane") is True

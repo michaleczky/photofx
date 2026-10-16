@@ -53,6 +53,9 @@ def dark_style(widget: tk.Misc) -> ttk.Style:
     style.configure("TEntry", fieldbackground=FIELD, foreground=FG_ENTRY,
                     bordercolor=SEPARATOR, lightcolor=SEPARATOR, darkcolor=SEPARATOR,
                     insertcolor=FG_ENTRY, padding=4)
+    style.configure("TScale", background=PANEL, troughcolor=FIELD,
+                    bordercolor=SEPARATOR, lightcolor=BUTTON_HOVER,
+                    darkcolor=BUTTON)
     style.configure("TCombobox", fieldbackground=FIELD, background=BUTTON,
                     foreground=FG_ENTRY, arrowcolor=FG, bordercolor=SEPARATOR,
                     lightcolor=SEPARATOR, darkcolor=SEPARATOR, padding=4)

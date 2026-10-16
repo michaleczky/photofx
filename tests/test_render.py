@@ -63,6 +63,28 @@ class TestRenderPipeline:
         # crop half -> 800x600, downscaled to 400x300
         assert img.size == (400, 300)
 
+    def test_edits_change_pixels_not_geometry(self, photo_factory):
+        path = photo_factory(color=(60, 60, 60))
+        plain = render(Photo(path=path), max_size=200)
+        edited = render(Photo(path=path, edits={"exposure": 1.0}), max_size=200)
+        assert edited.size == plain.size
+        assert edited.getpixel((5, 5))[0] > plain.getpixel((5, 5))[0]
+
+    def test_edits_apply_after_downscale(self, photo_factory):
+        """Edits are global: applying before or after resize matches."""
+        from PIL import Image
+        from photofx.lib.edits import apply_edits
+        path = photo_factory(size=(1600, 1200), color=(100, 120, 140))
+        edits = {"exposure": 0.5, "temp": 20}
+        full = render(Photo(path=path), max_size=None)
+        after = apply_edits(full.resize((200, 150), Image.LANCZOS), edits)
+        direct = render(Photo(path=path, edits=edits), max_size=200)
+        assert after.getpixel((10, 10)) == direct.getpixel((10, 10))
+
+    def test_no_edits_leaves_render_untouched(self, photo_factory):
+        path = photo_factory(color=(90, 120, 180))
+        assert render(Photo(path=path), 300).getpixel((5, 5)) == (90, 120, 180)
+
     def test_corrupt_file_raises_in_render(self, tmp_path):
         bad = tmp_path / "bad.jpg"
         bad.write_bytes(b"this is not an image")
@@ -120,6 +142,18 @@ class TestDiskThumbCache:
         photo = load_photo(photo_dir / "beach.png")
         cache.put(photo, 170, Image.new("RGB", (20, 15)))
         photo.crop = (0.1, 0.1, 0.9, 0.9)
+        assert cache.get(photo, 170) is None
+
+    def test_invalidated_by_edits(self, photo_dir):
+        from PIL import Image
+        from photofx.lib.render import DiskThumbCache
+        cache = DiskThumbCache(photo_dir)
+        photo = load_photo(photo_dir / "beach.png")
+        cache.put(photo, 170, Image.new("RGB", (20, 15)))
+        photo.edits = {"exposure": 0.5}
+        assert cache.get(photo, 170) is None
+        cache.put(photo, 170, Image.new("RGB", (20, 15)))
+        photo.edits = {"exposure": 0.5, "temp": 10}   # same exposure, new key
         assert cache.get(photo, 170) is None
 
     def test_invalidated_by_source_change(self, photo_dir):
@@ -232,6 +266,14 @@ class TestThumbCache:
         cache.put(photo, 16, Image.new("RGB", (16, 16)))
         photo.crop = (0.1, 0.1, 0.9, 0.9)
         assert cache.get(photo, 16) is None
+
+    def test_key_changes_with_edits(self, photo_dir):
+        from PIL import Image
+        cache = ThumbCache()
+        photo = load_photo(photo_dir / "beach.png")
+        cache.put(photo, 16, Image.new("RGB", (16, 16)))
+        photo.edits = {"saturation": -30}
+        assert cache.get(photo, 16) is None   # stale entry must not be reused
 
     def test_evicts_oldest_beyond_max(self, photo_dir):
         from PIL import Image
