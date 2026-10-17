@@ -85,6 +85,8 @@ photofx/
 
 ## Install / run
 
+From source (the .venv workflow the launcher scripts use):
+
 ```bash
 cd photofx
 python3 -m venv .venv
@@ -92,8 +94,22 @@ python3 -m venv .venv
 .venv/bin/python -m photofx
 ```
 
-(Or run with any Python ≥ 3.10 that has `tkinter` and Pillow installed:
-`python3 -m photofx`.)
+Or install it as a package — this also creates the `photofx` and
+`photofx-viewer` commands (windowed on Windows, plain scripts elsewhere):
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install .
+.venv/bin/photofx          # the grid app
+.venv/bin/photofx-viewer   # the single-photo viewer
+```
+
+Packaging is declared in `pyproject.toml` (PEP 621); the version lives
+there too. Build a distributable wheel with
+`pip wheel --no-deps -w dist .`.
+
+(Or run with any Python ≥ 3.10 that has
+`tkinter` and Pillow installed: `python3 -m photofx`.)
 
 ### Windowed launchers (.pyw)
 

@@ -1,0 +1,6 @@
+# sdist additions: everything not picked up automatically (packages,
+# pyproject.toml and the README are included by default).
+include requirements.txt requirements-dev.txt
+include start.sh
+include photofx.pyw viewer.pyw
+recursive-include tests *.py
