@@ -10,6 +10,53 @@ library:
 - **photofx.viewer** — the single-photo viewer with crop, rotate, flag and
   delete, usable standalone (`python -m photofx.viewer [folder]`)
 
+## Install
+
+photofx is a Python application: it needs **Python 3.10+** with tkinter,
+and installs from the [releases page](https://github.com/michaleczky/photofx/releases).
+After installing, two commands are available: `photofx` (the thumbnail
+grid) and `photofx-viewer` (the single-photo viewer).
+
+### Windows
+
+1. Install Python from [python.org](https://www.python.org/downloads/)
+   — tick **Add python.exe to PATH** during setup; tkinter is included.
+2. In PowerShell:
+
+   ```powershell
+   py -m pip install https://github.com/michaleczky/photofx/releases/download/v0.1.0/photofx-0.1.0-py3-none-any.whl
+   photofx
+   ```
+
+### macOS
+
+1. Install Python from [python.org](https://www.python.org/downloads/) —
+   the python.org installer includes tkinter (Homebrew's Python needs an
+   extra `brew install python-tk`).
+2. In Terminal:
+
+   ```bash
+   python3 -m pip install https://github.com/michaleczky/photofx/releases/download/v0.1.0/photofx-0.1.0-py3-none-any.whl
+   photofx
+   ```
+
+### Linux
+
+tkinter is a distro package, and newer distros block system-wide pip
+installs — so install into a virtual environment:
+
+```bash
+sudo apt install python3 python3-tk python3-venv      # Debian/Ubuntu
+# Fedora: sudo dnf install python3 python3-tkinter
+python3 -m venv ~/.venvs/photofx
+~/.venvs/photofx/bin/pip install https://github.com/michaleczky/photofx/releases/download/v0.1.0/photofx-0.1.0-py3-none-any.whl
+~/.venvs/photofx/bin/photofx
+```
+
+The commands above install release v0.1.0 — check the releases page for
+newer versions. For development, see
+[Install from source](#install-from-source) below.
+
 ```
 photofx/
 ├── lib/        # shared code used by both applications
@@ -83,7 +130,7 @@ photofx/
   cache entries are keyed by mtime/rotation/crop/edits/filter, so edits
   always re-render.
 
-## Install / run
+## Install from source
 
 From source (the .venv workflow the launcher scripts use):
 
