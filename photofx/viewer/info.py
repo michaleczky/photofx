@@ -25,7 +25,7 @@ class InfoPane:
         # no outer padding: the side pane provides it
         self.frame = ttk.Frame(viewer.side_pane, style="TFrame")   # packed by viewer._layout_side_pane
         self.body = ttk.Frame(self.frame)
-        self.body.pack(anchor="n")
+        self.body.pack(fill="x")   # fill: the column may be wider (enhance)
         self.sync(None)
 
     # ----------------------------------------------------------------- api
