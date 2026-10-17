@@ -1,11 +1,11 @@
 """Enhance pane: the non-destructive edit controls shown beside the photo.
 
-:class:`EnhancePane` builds the right-hand pane of the viewer: sliders
-grouped into sections (:data:`GROUPS`), plus Auto and Reset buttons.
-Sliders fire :meth:`viewer.live_enhance` continuously while dragged
-(live preview) and :meth:`viewer.commit_enhance` on release (persist).
-New enhance features slot in by adding their key to :data:`SLIDERS` and
-a section to :data:`GROUPS`.
+:class:`EnhancePane` builds the top part of the viewer's right pane:
+sliders grouped into sections (:data:`GROUPS`), plus Auto and Reset
+buttons. Sliders fire :meth:`viewer.live_enhance` continuously while
+dragged (live preview) and :meth:`viewer.commit_enhance` on release
+(persist). New enhance features slot in by adding their key to
+:data:`SLIDERS` and a section to :data:`GROUPS`.
 """
 
 from __future__ import annotations
@@ -38,8 +38,8 @@ class EnhancePane:
 
     def __init__(self, viewer):
         self.viewer = viewer
-        self.frame = ttk.Frame(viewer, padding=(10, 10, 10, 10),
-                               style="TFrame")   # packed side right when on
+        # no outer padding: the side pane provides it
+        self.frame = ttk.Frame(viewer.side_pane, style="TFrame")   # packed by viewer._layout_side_pane
         self._updating = False              # guard: programmatic set is not a drag
         self.scales: dict[str, ttk.Scale] = {}
         self.value_labels: dict[str, ttk.Label] = {}
@@ -101,15 +101,6 @@ class EnhancePane:
         finally:
             self._updating = False
         self._show_values()
-
-    def set_visible(self, on: bool):
-        # before= keeps the pane ahead of the expand-packed canvas in the
-        # packing order, so the canvas yields the right band to the pane
-        if on:
-            self.frame.pack(side="right", fill="y",
-                            before=self.viewer.view.canvas)
-        else:
-            self.frame.pack_forget()
 
     # ------------------------------------------------------------ helpers
     def _show_values(self):

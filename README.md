@@ -16,6 +16,7 @@ photofx/
 │   ├── catalog.py   # sidecar JSON metadata, folder scan, trash
 │   ├── render.py    # EXIF/rotate/crop/edit pipeline, thumbnail caches, worker
 │   ├── edits.py     # edit sliders: exposure, contrast, WB, saturation, Auto
+│   ├── exif.py      # file and EXIF metadata for the info pane
 │   ├── icons.py     # toolbar icons
 │   └── ops.py       # shared operations (rotation + crop remap, delete)
 ├── app/        # the grid application
@@ -31,6 +32,7 @@ photofx/
     ├── view.py      # image canvas: fit/zoom/pan rendering
     ├── crop.py      # crop state: ratios, draft rect, drag geometry
     ├── enhance.py   # the enhance pane: sectioned sliders, Auto, Reset
+    ├── info.py      # the info pane: file and EXIF metadata rows
     └── bars.py      # the bottom toolbar and the crop toolbar
 ```
 
@@ -50,6 +52,12 @@ photofx/
   balance, exposure and contrast suggested from the image itself) and a
   Reset button that clears all enhancements. The pane's visibility is
   remembered between sessions. Edits apply to thumbnails too.
+- **Info** (viewer, `i`): a pane in the same right-hand column as
+  Enhance, shown below it when both are open, with the important facts
+  about the current photo: file name, format, dimensions, size,
+  modified date, and the camera data from EXIF (camera model, date
+  taken, exposure, aperture, ISO, focal length, lens) when present.
+  The pane's visibility is remembered between sessions.
 - **Flag**: pick (★) / reject (✕) / clear.
 - **Filter**: picks / rejected / without rejects / unflagged.
 - **Delete**: moves photos (and their sidecars) into a `.photofx_trash` folder
@@ -153,9 +161,10 @@ Deleting the sidecar file resets the photo to its original state.
 .venv/bin/python -m pytest tests/
 ```
 
-- `tests/test_catalog.py`, `tests/test_render.py`, `tests/test_ops.py` —
-  headless unit tests for the shared library (scanning, sidecar JSON,
-  EXIF/rotation/crop pipeline, thumbnail caches, shared operations).
+- `tests/test_catalog.py`, `tests/test_render.py`, `tests/test_ops.py`,
+  `tests/test_exif.py` — headless unit tests for the shared library
+  (scanning, sidecar JSON, EXIF/rotation/crop pipeline, thumbnail caches,
+  shared operations, file/EXIF metadata).
 - `tests/test_app.py` — drives the real grid app (selection, filters,
   thumbnails, keyboard guard, embedded viewer).
 - `tests/test_viewer.py` — drives the viewer as its own application

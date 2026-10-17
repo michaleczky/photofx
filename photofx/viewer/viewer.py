@@ -6,8 +6,10 @@ collaborators together:
 - :class:`~photofx.viewer.view.ImageView` — canvas, rendering, zoom and pan
 - :class:`~photofx.viewer.crop.CropSession` — crop overlay state and geometry
 - :class:`~photofx.viewer.bars.Toolbar` / :class:`~photofx.viewer.bars.CropToolbar`
-- :class:`~photofx.viewer.enhance.EnhancePane` — the enhance sliders on the
-  right edge; its visibility is remembered between sessions
+- :class:`~photofx.viewer.enhance.EnhancePane` — the enhance sliders, the
+  top part of the right pane; its visibility is remembered between sessions
+- :class:`~photofx.viewer.info.InfoPane` — the file and EXIF info of the
+  current photo, below the enhance sliders; remembered like the enhance pane
 
 Everything user-visible (actions, keyboard bindings, the info line,
 redraw scheduling) is coordinated here; the collaborators never talk to
@@ -17,6 +19,7 @@ each other directly.
 from __future__ import annotations
 
 import tkinter as tk
+from tkinter import ttk
 
 from photofx.lib.catalog import PICK, REJECT, Photo
 from photofx.lib import settings, ui
@@ -25,6 +28,7 @@ from photofx.lib.ops import apply_rotation
 from photofx.viewer.bars import CropToolbar, Toolbar
 from photofx.viewer.crop import CropSession
 from photofx.viewer.enhance import EnhancePane
+from photofx.viewer.info import InfoPane
 from photofx.viewer.view import DARK, ImageView, ZOOM_STEP
 
 REDRAW_DELAY = 30     # ms debounce: bursts of Configure events coalesce into one
@@ -45,6 +49,7 @@ class Viewer(tk.Toplevel):
         self.crop = CropSession()
         self.show_original = False
         self.enhance_visible = settings.get_value("enhance_pane", False)
+        self.info_visible = settings.get_value("info_pane", False)
         self._live_edits: dict[str, float] | None = None  # during a slider drag
         self._pan: tuple[int, int] | None = None   # last pan press position
         self._show_job = None          # pending debounced redraw
@@ -56,10 +61,18 @@ class Viewer(tk.Toplevel):
         ui.dark_style(self)
         self.toolbar = Toolbar(self)
         self.crop_toolbar = CropToolbar(self, self.toolbar)
+        # the column's 10px padding is the panes' outer margin: the frames
+        # inside carry none, so the enhance/info junction is as tight as
+        # the section gaps within one pane
+        self.side_pane = ttk.Frame(self, style="TFrame",
+                                  padding=(10, 10, 10, 10))
         self.enhance_pane = EnhancePane(self)
         if self.enhance_visible:
             self.enhance_pane.sync(self.photo)
-            self.enhance_pane.set_visible(True)
+        self.info_pane = InfoPane(self)
+        if self.info_visible:
+            self.info_pane.sync(self.photo)
+        self._layout_side_pane()
 
         self._bind_events()
         self.focus_force()
@@ -101,6 +114,7 @@ class Viewer(tk.Toplevel):
         self.bind("x", lambda e: self.set_flag(REJECT))
         self.bind("u", lambda e: self.set_flag(None))
         self.bind("e", lambda e: self.toggle_enhance())
+        self.bind("i", lambda e: self.toggle_info())
         self.bind("bracketleft", lambda e: self.rotate(-90))
         self.bind("bracketright", lambda e: self.rotate(90))
         self.bind("<plus>", self.zoom_in)
@@ -209,7 +223,7 @@ class Viewer(tk.Toplevel):
 
     def _sync_buttons(self):
         self.toolbar.sync(self.photo, self.show_original, self.crop.active,
-                          self.enhance_visible)
+                          self.enhance_visible, self.info_visible)
         self.crop_toolbar.sync(self.crop.active, self.crop.ratio)
 
     # ----------------------------------------------------------------- zoom
@@ -291,8 +305,8 @@ class Viewer(tk.Toplevel):
         if self.enhance_visible:
             self._live_edits = None
             self.enhance_pane.sync(self.photo)
-        self.enhance_pane.set_visible(self.enhance_visible)
         settings.save_value("enhance_pane", self.enhance_visible)
+        self._layout_side_pane()
         self._show(keep_crop=True)
 
     def live_enhance(self, key: str, value: float):
@@ -335,6 +349,34 @@ class Viewer(tk.Toplevel):
         self.enhance_pane.sync(photo)
         self._changed()
         self._show(keep_crop=True)
+
+    def toggle_info(self):
+        """Show or hide the info pane; remembered between sessions."""
+        self.info_visible = not self.info_visible
+        if self.info_visible:
+            self.info_pane.sync(self.photo)
+        settings.save_value("info_pane", self.info_visible)
+        self._layout_side_pane()
+        self._show(keep_crop=True)
+
+    def _layout_side_pane(self):
+        """One right-hand column: enhance on top, info below it.
+
+        Repacking both panes in a fixed order keeps enhance above info no
+        matter in which order the panes were toggled. The column itself is
+        packed only while at least one pane is visible.
+        """
+        self.enhance_pane.frame.pack_forget()
+        self.info_pane.frame.pack_forget()
+        if self.enhance_visible:
+            self.enhance_pane.frame.pack(side="top", fill="x")
+        if self.info_visible:
+            self.info_pane.frame.pack(side="top", fill="x")
+        if self.enhance_visible or self.info_visible:
+            self.side_pane.pack(side="right", fill="y",
+                                before=self.view.canvas)
+        else:
+            self.side_pane.pack_forget()
 
     # ------------------------------------------------------------- actions
     def rotate(self, degrees: int):
@@ -407,6 +449,8 @@ class Viewer(tk.Toplevel):
         self._live_edits = None
         if self.enhance_visible:
             self.enhance_pane.sync(self.photo)
+        if self.info_visible:
+            self.info_pane.sync(self.photo)
         self.view.invalidate()
         self.view.zoom_reset()
         self._show()

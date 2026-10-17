@@ -475,6 +475,135 @@ class TestEnhancePane:
 
 
 @requires_display
+class TestInfoPane:
+    def _texts(self, viewer):
+        """Every label text in the pane, headers and row values alike."""
+        texts = []
+        for child in viewer.info_pane.body.winfo_children():
+            if child.winfo_class() == "TFrame":
+                for widget in child.winfo_children():
+                    texts.append(str(widget.cget("text")))
+            elif child.winfo_class() == "TLabel":
+                texts.append(str(child.cget("text")))
+        return texts
+
+    def test_toggle_shows_and_hides_pane(self, viewer):
+        viewer.toggle_info()
+        assert viewer.info_visible
+        assert viewer.info_pane.frame.winfo_manager() == "pack"
+        viewer.toggle_info()
+        assert not viewer.info_visible
+        assert viewer.info_pane.frame.winfo_manager() == ""
+
+    def test_info_button_shows_toggled_state(self, viewer):
+        viewer.toggle_info()
+        viewer._show(keep_crop=True)
+        assert viewer.toolbar.info_btn.cget("style") == "Accent.TButton"
+        viewer.toggle_info()
+        viewer._show(keep_crop=True)
+        assert viewer.toolbar.info_btn.cget("style") == "TButton"
+
+    def test_pane_shows_file_and_camera_info(self, tmp_path):
+        import tkinter as tk
+        from tests.conftest import make_exif_image
+        from photofx.viewer.viewer import Viewer
+
+        folder = tmp_path / "cam"
+        folder.mkdir()
+        make_exif_image(folder / "cam.jpg", make="TestCam", model="Model X100",
+                        exposure=(1, 125), aperture=(28, 10), iso=200)
+        root = tk.Tk()
+        root.withdraw()
+        window = Viewer(root, scan_folder(folder), 0)
+        try:
+            window.toggle_info()
+            texts = self._texts(window)
+            assert "FILE" in texts and "CAMERA" in texts
+            for expected in ("cam.jpg", "JPEG", "800 x 600 px",
+                             "TestCam Model X100", "1/125 s", "f/2.8",
+                             "ISO 200"):
+                assert expected in texts
+        finally:
+            window.destroy()
+            root.destroy()
+
+    def test_pane_follows_navigation(self, viewer):
+        viewer.toggle_info()
+        assert viewer.photos[0].name in self._texts(viewer)
+        viewer.navigate(1)
+        assert viewer.photos[1].name in self._texts(viewer)
+
+    def test_pane_empty_when_no_photo_left(self, viewer):
+        viewer.toggle_info()
+        while viewer.photos:
+            viewer.remove_current()
+        viewer._photo_changed()
+        assert self._texts(viewer) == []
+
+    def test_pane_visibility_is_remembered(self, photo_dir):
+        import tkinter as tk
+        from photofx.lib import settings
+        from photofx.viewer.viewer import Viewer
+
+        root = tk.Tk()
+        root.withdraw()
+        photos = scan_folder(photo_dir)
+        assert settings.get_value("info_pane", False) is False
+        first = Viewer(root, list(photos), 0)
+        assert not first.info_visible          # hidden on first launch
+        first.toggle_info()                    # leave it open
+        first.destroy()
+
+        second = Viewer(root, list(photos), 0)
+        assert second.info_visible
+        assert second.info_pane.frame.winfo_manager() == "pack"
+        second.toggle_info()                   # leave it closed
+        second.destroy()
+
+        third = Viewer(root, list(photos), 0)
+        assert not third.info_visible
+        third.destroy()
+        root.destroy()
+
+
+@requires_display
+class TestSidePane:
+    """Enhance and info share one right-hand column: enhance above info."""
+
+    def test_both_panes_stack_in_one_column(self, viewer):
+        viewer.toggle_enhance()
+        viewer.toggle_info()
+        viewer.update()
+        assert viewer.side_pane.winfo_manager() == "pack"
+        enhance = viewer.enhance_pane.frame
+        info = viewer.info_pane.frame
+        assert enhance.winfo_rootx() == info.winfo_rootx()   # same column
+        assert enhance.winfo_rooty() < info.winfo_rooty()    # enhance on top
+
+    def test_enhance_stays_on_top_when_info_opened_first(self, viewer):
+        viewer.toggle_info()
+        viewer.toggle_enhance()
+        viewer.update()
+        assert (viewer.enhance_pane.frame.winfo_rooty()
+                < viewer.info_pane.frame.winfo_rooty())
+
+    def test_column_stays_while_one_pane_is_open(self, viewer):
+        viewer.toggle_enhance()
+        viewer.toggle_info()
+        viewer.toggle_enhance()
+        assert viewer.side_pane.winfo_manager() == "pack"   # info still on
+        viewer.toggle_info()
+        assert viewer.side_pane.winfo_manager() == ""
+
+    def test_single_pane_uses_the_column_too(self, viewer):
+        viewer.toggle_info()
+        viewer.update()
+        assert viewer.side_pane.winfo_manager() == "pack"
+        assert viewer.info_pane.frame.winfo_manager() == "pack"
+        assert not viewer.enhance_pane.frame.winfo_ismapped()
+
+
+@requires_display
 class TestStandaloneEntry:
     """python -m photofx.viewer — argument validation and launch smoke."""
 

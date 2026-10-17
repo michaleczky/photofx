@@ -36,6 +36,7 @@ class Toolbar:
                             hint="Crop overlay")
         self.enhance_btn = btn("Enhance", viewer.toggle_enhance,
                                hint="Enhance pane  e")
+        self.info_btn = btn("Info", viewer.toggle_info, hint="Info pane  i")
         self._separator()
         btn("Zoom in", viewer.zoom_in, icon="zoom-in", hint="Zoom in  + / wheel up")
         btn("Zoom out", viewer.zoom_out, icon="zoom-out",
@@ -59,7 +60,7 @@ class Toolbar:
         self.info.configure(text=text)
 
     def sync(self, photo: Photo | None, show_original: bool, crop_active: bool,
-             enhance_visible: bool = False):
+             enhance_visible: bool = False, info_visible: bool = False):
         """Show the pressed/unpressed state of the toggle buttons."""
         flag = photo.flag if photo is not None else None
         ui.set_toggled(self.pick_btn, flag == PICK)
@@ -67,6 +68,7 @@ class Toolbar:
         ui.set_toggled(self.original_btn, show_original)
         ui.set_toggled(self.crop_btn, crop_active)
         ui.set_toggled(self.enhance_btn, enhance_visible)
+        ui.set_toggled(self.info_btn, info_visible)
 
 
 class CropToolbar:

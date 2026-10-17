@@ -32,6 +32,36 @@ def make_image(path, size, color, seed=0):
     return img
 
 
+def make_exif_image(path, size=(800, 600), color=(90, 120, 180), **tags):
+    """Save a JPEG carrying the given EXIF values, e.g. make="Foo".
+
+    Camera tags (exposure, aperture, ISO, focal length, date taken, lens)
+    land in the Exif sub-IFD like a real camera would write them.
+    """
+    from PIL.TiffImagePlugin import IFDRational
+
+    base = {"make": 271, "model": 272, "datetime": 306}
+    sub_tags = {
+        "exposure": (33434, lambda v: IFDRational(v[0], v[1])),
+        "aperture": (33437, lambda v: IFDRational(v[0], v[1])),
+        "iso": (34855, lambda v: v),
+        "focal_length": (37386, lambda v: IFDRational(v[0], v[1])),
+        "date_taken": (36867, lambda v: v),
+        "lens": (42036, lambda v: v),
+    }
+    exif = Image.Exif()
+    for name, value in tags.items():
+        if name in base:
+            exif[base[name]] = value
+        elif name in sub_tags:
+            tag, wrap = sub_tags[name]
+            exif.get_ifd(0x8769)[tag] = wrap(value)
+        else:
+            raise ValueError(f"unknown exif tag {name!r}")
+    Image.new("RGB", size, color).save(path, exif=exif)
+    return path
+
+
 @pytest.fixture
 def photo_dir(tmp_path):
     """A folder tree with six sample photos (jpg/png/tif/webp, one nested)."""
