@@ -110,6 +110,28 @@ class TestSidecar:
         data = json.loads((photo_dir / "beach.png.json").read_text())
         assert data["edits"] == {"temp": 30}
 
+    def test_filter_roundtrip(self, photo_dir):
+        path = photo_dir / "beach.png"
+        photo = load_photo(path)
+        photo.filter = "sepia"
+        save_photo(photo)
+        data = json.loads((path.with_name("beach.png.json")).read_text())
+        assert data["filter"] == "sepia"
+        assert load_photo(path).filter == "sepia"
+
+    def test_no_filter_not_written_to_sidecar(self, photo_dir):
+        path = photo_dir / "beach.png"
+        photo = load_photo(path)
+        save_photo(photo)
+        data = json.loads((path.with_name("beach.png.json")).read_text())
+        assert "filter" not in data
+
+    def test_unknown_filter_ignored_on_load(self, photo_dir):
+        path = photo_dir / "beach.png"
+        (path.with_name("beach.png.json")).write_text(json.dumps({
+            "filter": "no-such-look"}))
+        assert load_photo(path).filter is None
+
     def test_tolerates_bad_edits(self, photo_dir):
         path = photo_dir / "beach.png"
         (path.with_name("beach.png.json")).write_text(json.dumps({

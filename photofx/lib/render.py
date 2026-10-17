@@ -17,6 +17,7 @@ from PIL import Image, ImageOps
 
 from .catalog import Photo
 from .edits import apply_edits
+from .looks import apply_look
 
 Image.MAX_IMAGE_PIXELS = None  # trust local files
 
@@ -36,10 +37,10 @@ def open_rotated(photo: Photo) -> Image.Image:
 
 
 def render(photo: Photo, max_size: int | None = None) -> Image.Image:
-    """Full pipeline: EXIF -> rotation -> crop -> edits, optionally downscaled.
+    """Full pipeline: EXIF -> rotation -> crop -> edits -> filter look.
 
-    Edits are applied after downscaling: they are global (scale-
-    independent) operations, so this is visually identical and much
+    Edits and the look are applied after downscaling: they are global
+    (scale-independent) operations, so this is visually identical and much
     cheaper on large images.
     """
     img = open_rotated(photo)
@@ -51,6 +52,8 @@ def render(photo: Photo, max_size: int | None = None) -> Image.Image:
         img.thumbnail((max_size, max_size), Image.LANCZOS)
     if photo.edits:
         img = apply_edits(img, photo.edits)
+    if photo.filter:
+        img = apply_look(img, photo.filter)
     return img
 
 
@@ -79,7 +82,7 @@ class ThumbCache:
         except OSError:
             mtime = 0
         return (str(photo.path), mtime, photo.rotation, photo.crop,
-                photo.edits_key, size)
+                photo.edits_key, photo.filter, size)
 
     def get(self, photo: Photo, size: int) -> Image.Image | None:
         with self._lock:
@@ -104,9 +107,10 @@ class ThumbCache:
 class DiskThumbCache:
     """Persistent thumbnails under <folder>/.photofx_cache/thumbs.
 
-    File names encode the source path plus mtime/rotation/crop/edits/size,
-    so a cached thumb is reused only while the photo and its metadata are
-    unchanged. JPEG keeps the files small and fast to reload.
+    File names encode the source path plus mtime/rotation/crop/edits/
+    filter/size, so a cached thumb is reused only while the photo and
+    its metadata are unchanged. JPEG keeps the files small and fast
+    to reload.
     """
 
     def __init__(self, folder: Path):
@@ -150,7 +154,7 @@ class DiskThumbCache:
             mtime = photo.path.stat().st_mtime_ns
         except OSError:
             return None
-        meta = f"{mtime}|{photo.rotation}|{photo.crop}|{photo.edits_key}|{size}"
+        meta = f"{mtime}|{photo.rotation}|{photo.crop}|{photo.edits_key}|{photo.filter}|{size}"
         meta_key = hashlib.sha1(meta.encode("utf-8")).hexdigest()[:16]
         return self.dir / f"{self._path_key(photo.path)}_{meta_key}.jpg"
 

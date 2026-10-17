@@ -15,6 +15,7 @@ from PIL import Image, ImageTk
 
 from photofx.lib.catalog import Photo
 from photofx.lib.edits import apply_edits
+from photofx.lib.looks import apply_look
 from photofx.lib.render import open_rotated
 
 MARGIN = 30          # px around the image in the viewer
@@ -37,6 +38,7 @@ class ImageView:
         self.base: Image.Image | None = None
         self.base_key: tuple[str, int] | None = None
         self.edits: dict[str, float] = {}    # sliders shown right now
+        self.look: str | None = None         # filter look shown right now
         self.disp: ImageTk.PhotoImage | None = None
         self.img_box = (0, 0, 0, 0)
         self.zoom = 1.0            # multiplier on the fit-to-window scale
@@ -64,6 +66,7 @@ class ImageView:
         self.base = open_rotated(photo)
         self.base_key = (str(photo.path), photo.rotation)
         self.edits = dict(photo.edits)
+        self.look = photo.filter
 
     def invalidate(self):
         """Drop the cached render so the next draw reloads the photo."""
@@ -116,6 +119,7 @@ class ImageView:
 
         disp_img = disp_img.resize((dw, dh), Image.LANCZOS)
         disp_img = apply_edits(disp_img, self.edits)
+        disp_img = apply_look(disp_img, self.look)
         self.disp = ImageTk.PhotoImage(disp_img)
         self.canvas.create_image(ox, oy, image=self.disp, anchor="nw")
 

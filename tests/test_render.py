@@ -85,6 +85,21 @@ class TestRenderPipeline:
         path = photo_factory(color=(90, 120, 180))
         assert render(Photo(path=path), 300).getpixel((5, 5)) == (90, 120, 180)
 
+    def test_filter_applied_at_the_end_of_the_pipeline(self, photo_factory):
+        path = photo_factory(color=(90, 120, 180))
+        photo = Photo(path=path, filter="mono")
+        img = render(photo, 300)
+        r, g, b = img.getpixel((5, 5))
+        assert r == g == b   # gray even though the original was blue-ish
+
+    def test_filter_applies_after_edits(self, photo_factory):
+        """The look colors the corrected image: exposure first, then the LUT."""
+        path = photo_factory(color=(60, 60, 60))
+        photo = Photo(path=path, edits={"exposure": 1.0}, filter="arctic")
+        r, _g, b = render(photo, 300).getpixel((5, 5))
+        # +1 EV doubles 60 to 120, arctic then cools: blue above red
+        assert b > r
+
     def test_corrupt_file_raises_in_render(self, tmp_path):
         bad = tmp_path / "bad.jpg"
         bad.write_bytes(b"this is not an image")

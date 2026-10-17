@@ -8,8 +8,11 @@ collaborators together:
 - :class:`~photofx.viewer.bars.Toolbar` / :class:`~photofx.viewer.bars.CropToolbar`
 - :class:`~photofx.viewer.enhance.EnhancePane` — the enhance sliders, the
   top part of the right pane; its visibility is remembered between sessions
+- :class:`~photofx.viewer.filters.FiltersPane` — the filter looks with
+  live previews, below the enhance sliders; remembered like the others
 - :class:`~photofx.viewer.info.InfoPane` — the file and EXIF info of the
-  current photo, below the enhance sliders; remembered like the enhance pane
+  current photo, at the bottom of the right pane; remembered like the
+  enhance pane
 
 Everything user-visible (actions, keyboard bindings, the info line,
 redraw scheduling) is coordinated here; the collaborators never talk to
@@ -28,6 +31,7 @@ from photofx.lib.ops import apply_rotation
 from photofx.viewer.bars import CropToolbar, Toolbar
 from photofx.viewer.crop import CropSession
 from photofx.viewer.enhance import EnhancePane
+from photofx.viewer.filters import FiltersPane
 from photofx.viewer.info import InfoPane
 from photofx.viewer.view import DARK, ImageView, ZOOM_STEP
 
@@ -49,8 +53,10 @@ class Viewer(tk.Toplevel):
         self.crop = CropSession()
         self.show_original = False
         self.enhance_visible = settings.get_value("enhance_pane", False)
+        self.filter_visible = settings.get_value("filters_pane", False)
         self.info_visible = settings.get_value("info_pane", False)
         self._live_edits: dict[str, float] | None = None  # during a slider drag
+        self._live_filter: str | None = None  # hovered look, "" = Original
         self._pan: tuple[int, int] | None = None   # last pan press position
         self._show_job = None          # pending debounced redraw
         self._last_size = None         # canvas size the image was last rendered for
@@ -69,6 +75,9 @@ class Viewer(tk.Toplevel):
         self.enhance_pane = EnhancePane(self)
         if self.enhance_visible:
             self.enhance_pane.sync(self.photo)
+        self.filters_pane = FiltersPane(self)
+        if self.filter_visible:
+            self.filters_pane.sync(self.photo)
         self.info_pane = InfoPane(self)
         if self.info_visible:
             self.info_pane.sync(self.photo)
@@ -114,6 +123,7 @@ class Viewer(tk.Toplevel):
         self.bind("x", lambda e: self.set_flag(REJECT))
         self.bind("u", lambda e: self.set_flag(None))
         self.bind("e", lambda e: self.toggle_enhance())
+        self.bind("f", lambda e: self.toggle_filters())
         self.bind("i", lambda e: self.toggle_info())
         self.bind("bracketleft", lambda e: self.rotate(-90))
         self.bind("bracketright", lambda e: self.rotate(90))
@@ -189,12 +199,18 @@ class Viewer(tk.Toplevel):
         if not keep_crop or not self.view.matches(photo):
             self.view.load(photo)
             self.crop.seed(photo)
+        look = photo.filter
+        if self._live_filter is not None:     # a tile is hovered
+            look = self._live_filter or None
         if self.show_original:
             self.view.edits = {}
+            self.view.look = None
         elif self._live_edits is not None:
             self.view.edits = dict(self._live_edits)
+            self.view.look = look
         else:
             self.view.edits = dict(photo.edits)
+            self.view.look = look
         sub_rect = None
         if photo.crop is not None and not self.crop.active and not self.show_original:
             sub_rect = photo.crop
@@ -210,11 +226,11 @@ class Viewer(tk.Toplevel):
         flags = {"pick": "  PICK", "reject": "  REJECT"}.get(photo.flag, "")
         if self.crop.active:
             crop_note = self.crop.ratio.note()
-        elif self.show_original and (photo.crop or photo.edits):
+        elif self.show_original and (photo.crop or photo.edits or photo.filter):
             crop_note = "  [original]"
         else:
             crop_note = "  [cropped]" if photo.crop else ""
-            if photo.edits and not self.show_original:
+            if (photo.edits or photo.filter) and not self.show_original:
                 crop_note += "  [edited]"
         zoom_note = f"  {round(self.view.zoom * 100)}%" if self.view.zoom > 1.005 else ""
         self.toolbar.set_info(
@@ -223,7 +239,8 @@ class Viewer(tk.Toplevel):
 
     def _sync_buttons(self):
         self.toolbar.sync(self.photo, self.show_original, self.crop.active,
-                          self.enhance_visible, self.info_visible)
+                          self.enhance_visible, self.filter_visible,
+                          self.info_visible)
         self.crop_toolbar.sync(self.crop.active, self.crop.ratio)
 
     # ----------------------------------------------------------------- zoom
@@ -350,6 +367,41 @@ class Viewer(tk.Toplevel):
         self._changed()
         self._show(keep_crop=True)
 
+    def toggle_filters(self):
+        """Show or hide the filters pane; remembered between sessions."""
+        self.filter_visible = not self.filter_visible
+        if self.filter_visible:
+            self._live_filter = None
+            self.filters_pane.sync(self.photo)
+        settings.save_value("filters_pane", self.filter_visible)
+        self._layout_side_pane()
+        self._show(keep_crop=True)
+
+    def live_filter(self, name: str):
+        """Hover: preview a look on the big image without saving it."""
+        if self.photo is None:
+            return
+        self._live_filter = name
+        self._schedule_show()
+
+    def cancel_filter(self):
+        """Hover ended: drop the preview, back to the stored look."""
+        if self._live_filter is None:
+            return
+        self._live_filter = None
+        self._schedule_show()
+
+    def commit_filter(self, name: str):
+        """Click: store the look in the sidecar ('' clears it)."""
+        photo = self.photo
+        if photo is None:
+            return
+        self._live_filter = None
+        photo.filter = name or None
+        self.filters_pane.sync(photo)
+        self._changed()
+        self._show(keep_crop=True)
+
     def toggle_info(self):
         """Show or hide the info pane; remembered between sessions."""
         self.info_visible = not self.info_visible
@@ -360,19 +412,23 @@ class Viewer(tk.Toplevel):
         self._show(keep_crop=True)
 
     def _layout_side_pane(self):
-        """One right-hand column: enhance on top, info below it.
+        """One right-hand column: enhance on top, filters below, info last.
 
-        Repacking both panes in a fixed order keeps enhance above info no
-        matter in which order the panes were toggled. The column itself is
-        packed only while at least one pane is visible.
+        Repacking the panes in a fixed order keeps that arrangement no
+        matter in which order the panes were toggled. The column itself
+        is packed only while at least one pane is visible.
         """
         self.enhance_pane.frame.pack_forget()
+        self.filters_pane.frame.pack_forget()
         self.info_pane.frame.pack_forget()
         if self.enhance_visible:
             self.enhance_pane.frame.pack(side="top", fill="x")
+        if self.filter_visible:
+            self.filters_pane.frame.pack(side="top", fill="x")
         if self.info_visible:
             self.info_pane.frame.pack(side="top", fill="x")
-        if self.enhance_visible or self.info_visible:
+        if (self.enhance_visible or self.filter_visible
+                or self.info_visible):
             self.side_pane.pack(side="right", fill="y",
                                 before=self.view.canvas)
         else:
@@ -447,6 +503,7 @@ class Viewer(tk.Toplevel):
         self.crop.draft = None
         self._end_crop()
         self._live_edits = None
+        self._live_filter = None
         if self.enhance_visible:
             self.enhance_pane.sync(self.photo)
         if self.info_visible:
@@ -454,6 +511,9 @@ class Viewer(tk.Toplevel):
         self.view.invalidate()
         self.view.zoom_reset()
         self._show()
+        # after _show loaded the base image the preview tiles can use it
+        if self.filter_visible:
+            self.filters_pane.sync(self.photo)
 
     def _changed(self):
         photo = self.photo

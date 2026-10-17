@@ -16,6 +16,7 @@ photofx/
 │   ├── catalog.py   # sidecar JSON metadata, folder scan, trash
 │   ├── render.py    # EXIF/rotate/crop/edit pipeline, thumbnail caches, worker
 │   ├── edits.py     # edit sliders: exposure, contrast, WB, saturation, Auto
+│   ├── looks.py     # named filter looks (mono, sepia, ...) as per-channel LUTs
 │   ├── exif.py      # file and EXIF metadata for the info pane
 │   ├── icons.py     # toolbar icons
 │   └── ops.py       # shared operations (rotation + crop remap, delete)
@@ -32,6 +33,7 @@ photofx/
     ├── view.py      # image canvas: fit/zoom/pan rendering
     ├── crop.py      # crop state: ratios, draft rect, drag geometry
     ├── enhance.py   # the enhance pane: sectioned sliders, Auto, Reset
+    ├── filters.py   # the filters pane: look tiles with live previews
     ├── info.py      # the info pane: file and EXIF metadata rows
     └── bars.py      # the bottom toolbar and the crop toolbar
 ```
@@ -58,6 +60,13 @@ photofx/
   modified date, and the camera data from EXIF (camera model, date
   taken, exposure, aperture, ISO, focal length, lens) when present.
   The pane's visibility is remembered between sessions.
+- **Filters** (viewer, `f`): a pane between Enhance and Info with named
+  looks — Mono, Sepia, Noir, Vivid, Fade, Golden, Arctic — each shown as
+  a small live preview of the current photo. Hovering a tile previews
+  the look on the big image, clicking stores it; the Original tile
+  clears it. The look is applied on top of the enhance edits and shows
+  in the grid thumbnails too. The pane's visibility is remembered
+  between sessions.
 - **Flag**: pick (★) / reject (✕) / clear.
 - **Filter**: picks / rejected / without rejects / unflagged.
 - **Delete**: moves photos (and their sidecars) into a `.photofx_trash` folder
@@ -71,8 +80,8 @@ photofx/
 - **Fast thumbnails**: rendered in parallel on background threads and cached
   on disk in `.photofx_cache/thumbs` inside the photo folder. Folders you
   have opened once display their thumbnails almost instantly at startup;
-  cache entries are keyed by mtime/rotation/crop/edits, so edits always
-  re-render.
+  cache entries are keyed by mtime/rotation/crop/edits/filter, so edits
+  always re-render.
 
 ## Install / run
 
@@ -125,9 +134,10 @@ first launch (a folder picker only appears when neither exists). The
 folder shown is remembered for the next launch. Or open it from the grid
 app by double-clicking a photo.
 
-`←`/`→` navigate, `P`/`X`/`U` flag, `[`/`]` rotate, `Delete` delete.
+- `←`/`→` navigate, `P`/`X`/`U` flag, `[`/`]` rotate, `Delete` delete.
 `+`/`-` zoom in/out (also the mouse wheel), `0` fit to window; drag the
-image to pan while zoomed in. The **Pick**/**Reject** buttons are
+image to pan while zoomed in. `E`/`F`/`I` toggle the Enhance / Filters /
+Info panes on the right edge. The **Pick**/**Reject** buttons are
 toggles: clicking one sets it and clears the other, clicking it again
 clears the flag. **Original** shows the uncropped photo.
 **Crop** toggles the crop overlay; drag to draw, then **Apply crop**
@@ -151,6 +161,9 @@ apply/clear. The chosen ratio constrains the overlay while you drag.
 - `rotation`: degrees clockwise (0/90/180/270), applied after the EXIF
   orientation
 - `crop`: `[x0, y0, x1, y1]` in fractions of the *rotated* image
+- `edits`: nonzero edit sliders, e.g. `{"exposure": 0.5, "temp": 10}`
+- `filter`: the name of a filter look, e.g. `"sepia"` (see
+  `photofx/lib/looks.py`); absent means no look
 
 Deleting the sidecar file resets the photo to its original state.
 
@@ -162,9 +175,10 @@ Deleting the sidecar file resets the photo to its original state.
 ```
 
 - `tests/test_catalog.py`, `tests/test_render.py`, `tests/test_ops.py`,
-  `tests/test_exif.py` — headless unit tests for the shared library
-  (scanning, sidecar JSON, EXIF/rotation/crop pipeline, thumbnail caches,
-  shared operations, file/EXIF metadata).
+  `tests/test_exif.py`, `tests/test_looks.py` — headless unit tests for
+  the shared library (scanning, sidecar JSON, EXIF/rotation/crop
+  pipeline, thumbnail caches, shared operations, file/EXIF metadata,
+  filter looks).
 - `tests/test_app.py` — drives the real grid app (selection, filters,
   thumbnails, keyboard guard, embedded viewer).
 - `tests/test_viewer.py` — drives the viewer as its own application

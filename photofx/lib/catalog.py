@@ -7,6 +7,8 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .looks import LOOKS
+
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp"}
 TRASH_DIRNAME = ".photofx_trash"
 
@@ -25,6 +27,7 @@ class Photo:
     rotation: int = 0                # 0, 90, 180, 270 (clockwise, on top of EXIF)
     crop: tuple[float, float, float, float] | None = None  # x0, y0, x1, y1 in 0..1, rotated space
     edits: dict[str, float] = field(default_factory=dict)   # nonzero values of EDIT_KEYS
+    filter: str | None = None          # name of a photofx.lib.looks entry ("" would mean none)
 
     @property
     def name(self) -> str:
@@ -64,6 +67,9 @@ def load_photo(path: Path) -> Photo:
                 if isinstance(value, (int, float)) and not isinstance(value, bool):
                     if value != 0.0:
                         photo.edits[key] = float(value)
+        name = data.get("filter")
+        if isinstance(name, str) and name in LOOKS:
+            photo.filter = name
     return photo
 
 
@@ -74,6 +80,8 @@ def save_photo(photo: Photo) -> None:
     if photo.edits:
         data["edits"] = {k: round(v, 6) for k, v in sorted(photo.edits.items())
                          if v != 0.0}
+    if photo.filter:
+        data["filter"] = photo.filter
     photo.sidecar.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 

@@ -475,6 +475,127 @@ class TestEnhancePane:
 
 
 @requires_display
+class TestFiltersPane:
+    def _captions(self, viewer):
+        """The caption of every tile in the pane."""
+        texts = []
+        for row in viewer.filters_pane.body.winfo_children():
+            for tile in row.winfo_children():
+                for widget in tile.winfo_children():
+                    if widget.winfo_class() == "TLabel":
+                        texts.append(str(widget.cget("text")))
+        return texts
+
+    def test_toggle_shows_and_hides_pane(self, viewer):
+        viewer.toggle_filters()
+        assert viewer.filter_visible
+        assert viewer.filters_pane.frame.winfo_manager() == "pack"
+        viewer.toggle_filters()
+        assert not viewer.filter_visible
+        assert viewer.filters_pane.frame.winfo_manager() == ""
+
+    def test_filters_button_shows_toggled_state(self, viewer):
+        viewer.toggle_filters()
+        viewer._show(keep_crop=True)
+        assert viewer.toolbar.filters_btn.cget("style") == "Accent.TButton"
+        viewer.toggle_filters()
+        viewer._show(keep_crop=True)
+        assert viewer.toolbar.filters_btn.cget("style") == "TButton"
+
+    def test_pane_has_original_plus_every_look(self, viewer):
+        from photofx.lib.looks import LOOKS
+        viewer.toggle_filters()
+        captions = self._captions(viewer)
+        assert captions[0] == "Original"
+        assert captions[1:] == list(LOOKS.values())
+
+    def test_click_stores_the_look(self, viewer, photo_dir):
+        name = viewer.photo.name
+        viewer.toggle_filters()
+        viewer.commit_filter("sepia")
+        assert viewer.photo.filter == "sepia"
+        assert viewer.view.look == "sepia"          # rendered right away
+        assert load_photo(photo_dir / name).filter == "sepia"
+
+    def test_original_tile_clears_the_look(self, viewer, photo_dir):
+        name = viewer.photo.name
+        viewer.commit_filter("mono")
+        assert viewer.photo.filter == "mono"
+        viewer.commit_filter("")
+        assert viewer.photo.filter is None
+        assert load_photo(photo_dir / name).filter is None
+
+    def test_hover_previews_without_storing(self, viewer, photo_dir):
+        viewer.toggle_filters()
+        viewer.live_filter("noir")
+        viewer._show(keep_crop=True)
+        assert viewer.view.look == "noir"
+        assert viewer.photo.filter is None          # preview only
+        assert load_photo(photo_dir / viewer.photo.name).filter is None
+        viewer.cancel_filter()
+        viewer._show(keep_crop=True)
+        assert viewer.view.look is None             # back to the stored look
+
+    def test_hover_original_previews_no_look(self, viewer):
+        viewer.commit_filter("mono")
+        viewer.live_filter("")                      # the Original tile
+        viewer._show(keep_crop=True)
+        assert viewer.view.look is None
+        assert viewer.photo.filter == "mono"        # not cleared by the hover
+
+    def test_show_original_ignores_the_look(self, viewer):
+        viewer.commit_filter("mono")
+        viewer.toggle_original()
+        viewer._show(keep_crop=True)
+        assert viewer.view.look is None
+        assert viewer.view.edits == {}
+
+    def test_info_line_marks_filtered_photos(self, viewer):
+        viewer.commit_filter("fade")
+        assert "[edited]" in viewer.toolbar.info.cget("text")
+
+    def test_pane_follows_navigation(self, viewer):
+        from photofx.lib.looks import LOOKS
+        viewer.toggle_filters()
+        assert len(self._captions(viewer)) == len(LOOKS) + 1
+        viewer.navigate(1)
+        assert len(self._captions(viewer)) == len(LOOKS) + 1
+        assert viewer.view.look is None             # the new photo is unfiltered
+
+    def test_pane_empty_when_no_photo_left(self, viewer):
+        viewer.toggle_filters()
+        while viewer.photos:
+            viewer.remove_current()
+        viewer._photo_changed()
+        assert self._captions(viewer) == []
+
+    def test_pane_visibility_is_remembered(self, photo_dir):
+        import tkinter as tk
+        from photofx.lib import settings
+        from photofx.viewer.viewer import Viewer
+
+        root = tk.Tk()
+        root.withdraw()
+        photos = scan_folder(photo_dir)
+        assert settings.get_value("filters_pane", False) is False
+        first = Viewer(root, list(photos), 0)
+        assert not first.filter_visible        # hidden on first launch
+        first.toggle_filters()                 # leave it open
+        first.destroy()
+
+        second = Viewer(root, list(photos), 0)  # a fresh viewer remembers
+        assert second.filter_visible
+        assert second.filters_pane.frame.winfo_manager() == "pack"
+        second.toggle_filters()                 # leave it closed
+        second.destroy()
+
+        third = Viewer(root, list(photos), 0)
+        assert not third.filter_visible
+        third.destroy()
+        root.destroy()
+
+
+@requires_display
 class TestInfoPane:
     def _texts(self, viewer):
         """Every label text in the pane, headers and row values alike."""
