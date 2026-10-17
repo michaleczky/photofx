@@ -19,14 +19,27 @@ grid) and `photofx-viewer` (the single-photo viewer).
 
 ### Windows
 
-1. Install Python from [python.org](https://www.python.org/downloads/)
-   — tick **Add python.exe to PATH** during setup; tkinter is included.
-2. In PowerShell:
+Easiest — the installer, no Python needed:
 
-   ```powershell
-   py -m pip install https://github.com/michaleczky/photofx/releases/download/v0.1.0/photofx-0.1.0-py3-none-any.whl
-   photofx
-   ```
+1. Download `photofx-...-setup.exe` from the
+   [releases page](https://github.com/michaleczky/photofx/releases)
+   and run it. It installs for the current user only: no admin rights,
+   no UAC prompt, Start-menu entries for both apps, and an optional
+   desktop icon.
+2. The last page of the installer offers to launch photofx; or start it
+   from the Start menu.
+
+Note: the installer is unsigned, so Windows SmartScreen may warn about
+an unknown publisher — choose **More info** and then **Run anyway**.
+
+If you already have Python 3.10+ (from
+[python.org](https://www.python.org/downloads/), tkinter included),
+you can instead install the wheel with pip:
+
+```powershell
+py -m pip install https://github.com/michaleczky/photofx/releases/download/v0.1.1/photofx-0.1.1-py3-none-any.whl
+photofx
+```
 
 ### macOS
 
@@ -36,7 +49,7 @@ grid) and `photofx-viewer` (the single-photo viewer).
 2. In Terminal:
 
    ```bash
-   python3 -m pip install https://github.com/michaleczky/photofx/releases/download/v0.1.0/photofx-0.1.0-py3-none-any.whl
+   python3 -m pip install https://github.com/michaleczky/photofx/releases/download/v0.1.1/photofx-0.1.1-py3-none-any.whl
    photofx
    ```
 
@@ -49,11 +62,11 @@ installs — so install into a virtual environment:
 sudo apt install python3 python3-tk python3-venv      # Debian/Ubuntu
 # Fedora: sudo dnf install python3 python3-tkinter
 python3 -m venv ~/.venvs/photofx
-~/.venvs/photofx/bin/pip install https://github.com/michaleczky/photofx/releases/download/v0.1.0/photofx-0.1.0-py3-none-any.whl
+~/.venvs/photofx/bin/pip install https://github.com/michaleczky/photofx/releases/download/v0.1.1/photofx-0.1.1-py3-none-any.whl
 ~/.venvs/photofx/bin/photofx
 ```
 
-The commands above install release v0.1.0 — check the releases page for
+The commands above install release v0.1.1 — check the releases page for
 newer versions. For development, see
 [Install from source](#install-from-source) below.
 
