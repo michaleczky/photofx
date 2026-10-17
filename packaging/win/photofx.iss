@@ -8,6 +8,9 @@
 ; preprocessor), e.g. iscc packaging\win\photofx.iss
 
 #define Version GetEnv("PHOTOFX_VERSION")
+; the repo root: SourcePath is packaging\win, and both Source:/OutputDir
+; paths below are resolved relative to this script file, not the cwd
+#define Root SourcePath + "..\.."
 
 [Setup]
 AppId={{831C3F70-8C16-4FA0-9FCC-A5BA8A361A6C}
@@ -26,12 +29,12 @@ SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayName=photofx
 UninstallDisplayIcon={app}\photofx.exe
-OutputDir=dist
+OutputDir={#Root}\dist
 OutputBaseFilename=photofx-{#Version}-setup
 
 [Files]
-Source: "dist\photofx.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "dist\photofx-viewer.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\dist\photofx.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\dist\photofx-viewer.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop icon"; \
